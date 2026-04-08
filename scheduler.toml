@@ -1,0 +1,13 @@
+[[jobs]]
+name        = "sprint-tick"
+cron        = "* * * * *"
+graph       = "./compositions/sprint_tick.json"
+input_from  = "kv:caloron:active_sprint"
+on_error    = "log"
+
+[[jobs]]
+name        = "retro"
+cron        = "0 18 * * 5"
+graph       = "./compositions/retro.json"
+input_from  = "kv:caloron:active_sprint"
+enabled     = false

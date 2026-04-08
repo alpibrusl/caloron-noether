@@ -1,0 +1,34 @@
+{
+  "description": "Caloron sprint retro — collect feedback, analyse, write report",
+  "version": "0.1.0",
+  "root": {
+    "op": "Sequential",
+    "stages": [
+      {
+        "op": "Stage", "id": "STAGE:kv_get",
+        "_comment": "Load final DagState from KV"
+      },
+      {
+        "op": "Parallel",
+        "branches": {
+          "feedback": {
+            "op": "Stage", "id": "STAGE:collect_sprint_feedback",
+            "_comment": "Fetch feedback YAML from issue comments"
+          },
+          "kpis": {
+            "op": "Stage", "id": "STAGE:compute_sprint_kpis",
+            "_comment": "Compute completion rate, velocity, interventions"
+          }
+        }
+      },
+      {
+        "op": "Stage", "id": "STAGE:write_retro_report",
+        "_comment": "Generate Markdown retro report"
+      },
+      {
+        "op": "Stage", "id": "STAGE:write_file",
+        "_comment": "Write report to reports/{sprint_id}.md"
+      }
+    ]
+  }
+}
