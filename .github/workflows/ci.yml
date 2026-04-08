@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  shell:
+    name: Rust Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo check -p caloron-shell
+      - name: Clippy
+        run: cargo clippy -p caloron-shell -- -D warnings
+
+  stages:
+    name: Python Stages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test DAG evaluate (unblock)
+        run: |
+          echo '{"state":{"tasks":{"t1":{"status":"Pending","depends_on":[],"agent_id":"a1"}}},"events":[],"stall_threshold_m":20}' \
+            | python3 stages/dag/evaluate.py \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['state']['tasks']['t1']['status']=='Ready'"
+
+      - name: Test DAG evaluate (PR merge + unblock)
+        run: |
+          echo '{"state":{"tasks":{"t1":{"status":"InReview","depends_on":[],"agent_id":"a1","pr_number":100,"issue_number":1,"started_at":"2026-04-08T10:00:00Z"},"t2":{"status":"Pending","depends_on":["t1"],"agent_id":"a2"}}},"events":[{"type":"pr_merged","pr_number":100}],"stall_threshold_m":60}' \
+            | python3 stages/dag/evaluate.py \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['state']['tasks']['t1']['status']=='Done'; assert d['state']['tasks']['t2']['status']=='Ready'"
+
+      - name: Test DAG is_complete
+        run: |
+          echo '{"state":{"tasks":{"t1":{"status":"Done"},"t2":{"status":"Done"}}}}' \
+            | python3 stages/dag/is_complete.py \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['complete']==True"
+
+      - name: Test DAG validate (cycle detection)
+        run: |
+          echo '{"dag":{"tasks":{"t1":{"depends_on":["t2"],"agent_id":"a"},"t2":{"depends_on":["t1"],"agent_id":"b"}}}}' \
+            | python3 stages/dag/validate.py \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['valid']==False"
+
+      - name: Test health check
+        run: |
+          echo '{"agents":{"a1":{"last_heartbeat_at":"2020-01-01T00:00:00Z","task_started_at":"2020-01-01T00:00:00Z"}},"stall_threshold_m":20}' \
+            | python3 stages/supervisor/check_health.py \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['results'][0]['status']=='stalled'"
+
+      - name: Test intervention decision
+        run: |
+          echo '{"results":[{"agent_id":"a1","status":"stalled","minutes_since":30}],"interventions":{}}' \
+            | python3 stages/supervisor/decide_intervention.py \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['actions'][0]['action']=='probe'"
+
+      - name: Test KPI computation
+        run: |
+          echo '{"state":{"tasks":{"t1":{"status":"Done"},"t2":{"status":"Done"}}},"started_at":"2026-04-08T10:00:00Z","ended_at":"2026-04-08T14:00:00Z"}' \
+            | python3 stages/retro/compute_kpis.py \
+            | python3 -c "import json,sys; assert json.load(sys.stdin)['completion_rate']==1.0"
+
+  docs:
+    name: MkDocs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install mkdocs-material
+      - run: mkdocs build
