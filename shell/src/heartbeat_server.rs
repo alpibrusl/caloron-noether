@@ -3,7 +3,6 @@ use chrono::{DateTime, Utc};
 
 /// In-memory heartbeat store with async KV persistence via Noether CLI.
 pub struct HeartbeatStore {
-    /// agent_id → (sprint_id, last_heartbeat, status)
     entries: HashMap<String, HeartbeatEntry>,
 }
 
@@ -20,7 +19,6 @@ impl HeartbeatStore {
         }
     }
 
-    /// Record a heartbeat from an agent.
     pub fn record(&mut self, agent_id: &str, sprint_id: &str, status: Option<&str>) {
         let now = Utc::now();
 
@@ -41,39 +39,45 @@ impl HeartbeatStore {
         });
     }
 
-    /// Get the last heartbeat time for an agent.
     pub fn last_heartbeat(&self, agent_id: &str) -> Option<DateTime<Utc>> {
         self.entries.get(agent_id).map(|e| e.last_heartbeat)
     }
 }
 
 /// Write a value to the Noether KV store via the `noether` CLI.
-///
-/// Uses `noether stage run <kv_set_hash>` with the key/value as input.
-/// Falls back to a direct SQLite write if the CLI is not available.
+/// Uses kv_set stage (ID: 9d885082) through a minimal inline graph.
 async fn write_kv(key: &str, value: &str) -> anyhow::Result<()> {
-    // Try writing via a simple Python one-liner that uses Noether's KV
-    // This avoids depending on a specific stage hash or graph file.
-    let script = format!(
-        r#"import sqlite3, json, os
-db_path = os.path.expanduser("~/.noether/kv.db")
-os.makedirs(os.path.dirname(db_path), exist_ok=True)
-conn = sqlite3.connect(db_path)
-conn.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)")
-conn.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", ("{key}", json.dumps("{value}")))
-conn.commit()
-conn.close()
-"#
-    );
+    let input = serde_json::json!({
+        "key": key,
+        "value": value
+    });
 
-    let output = tokio::process::Command::new("python3")
-        .args(["-c", &script])
+    // Call noether's kv_set directly via stage execution
+    // The stage ID 9d885082 = "Store a JSON value under a key in the persistent key-value store"
+    let graph = serde_json::json!({
+        "description": "KV write",
+        "version": "0.1.0",
+        "root": { "op": "Stage", "id": "9d885082" }
+    });
+
+    let graph_str = graph.to_string();
+    let input_str = input.to_string();
+
+    // Write temp graph file (noether run needs a file path)
+    let graph_path = format!("/tmp/caloron-kv-write-{}.json", std::process::id());
+    tokio::fs::write(&graph_path, &graph_str).await?;
+
+    let output = tokio::process::Command::new("noether")
+        .args(["run", &graph_path, "--input", &input_str])
         .output()
         .await?;
 
+    // Clean up temp file
+    let _ = tokio::fs::remove_file(&graph_path).await;
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::debug!(key, stderr = %stderr, "KV write failed (non-fatal)");
+        tracing::debug!(key, stderr = %stderr, "KV write via noether failed (non-fatal)");
     }
 
     Ok(())

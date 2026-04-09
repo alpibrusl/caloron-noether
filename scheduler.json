@@ -1,0 +1,24 @@
+{
+  "store_path": ".noether/store.json",
+  "jobs": [
+    {
+      "name": "sprint-tick",
+      "cron": "* * * * *",
+      "graph": "./compositions/sprint_tick.json",
+      "input": {
+        "sprint_id": "sprint-1",
+        "repo": "owner/repo",
+        "stall_threshold_m": 20
+      }
+    },
+    {
+      "name": "retro",
+      "cron": "0 18 * * 5",
+      "graph": "./compositions/retro.json",
+      "input": {
+        "sprint_id": "sprint-1",
+        "repo": "owner/repo"
+      }
+    }
+  ]
+}

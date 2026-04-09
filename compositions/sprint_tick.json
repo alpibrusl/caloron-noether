@@ -10,15 +10,15 @@
         "_comment": "Load all state from KV in parallel",
         "branches": {
           "dag_state": {
-            "op": "Stage", "id": "REGISTER:kv_get",
+            "op": "Stage", "id": "339bd6d0",
             "_desc": "Retrieve a JSON value by key"
           },
           "last_poll": {
-            "op": "Stage", "id": "REGISTER:kv_get",
+            "op": "Stage", "id": "339bd6d0",
             "_desc": "Retrieve a JSON value by key"
           },
           "agents": {
-            "op": "Stage", "id": "REGISTER:kv_get",
+            "op": "Stage", "id": "339bd6d0",
             "_desc": "Retrieve a JSON value by key"
           }
         }
@@ -28,7 +28,7 @@
         "_desc": "Poll GitHub for sprint events since a timestamp"
       },
       {
-        "op": "Stage", "id": "REGISTER:kv_set",
+        "op": "Stage", "id": "9d885082",
         "_comment": "Save polled_at as new last_poll",
         "_desc": "Store a JSON value under a key"
       },
@@ -37,7 +37,7 @@
         "_desc": "Evaluate a sprint DAG from GitHub events"
       },
       {
-        "op": "Stage", "id": "REGISTER:kv_set",
+        "op": "Stage", "id": "9d885082",
         "_comment": "Persist updated DagState",
         "_desc": "Store a JSON value under a key"
       },

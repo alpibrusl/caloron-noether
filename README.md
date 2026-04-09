@@ -42,7 +42,7 @@ cargo build -p caloron-shell
 CALORON_SHELL_PORT=7710 ./target/debug/caloron-shell
 
 # 5. Start the scheduler (drives sprint ticks)
-noether-scheduler --config scheduler.toml
+noether-scheduler --config scheduler.json
 ```
 
 ## Stage Promotion Path
@@ -60,5 +60,5 @@ stages/           Python stage implementations (stdin JSON → stdout JSON)
   kickoff/        Repo context, DAG generation
 compositions/     Noether composition graphs (JSON)
 shell/            Thin Rust binary (axum HTTP server)
-scheduler.toml    noether-scheduler config
+scheduler.json    noether-scheduler config
 ```

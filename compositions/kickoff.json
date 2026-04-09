@@ -18,7 +18,7 @@
         "_desc": "Validate a sprint DAG for structural correctness"
       },
       {
-        "op": "Stage", "id": "REGISTER:kv_set",
+        "op": "Stage", "id": "9d885082",
         "_comment": "Save initial DagState to KV",
         "_desc": "Store a JSON value under a key"
       },
@@ -28,7 +28,7 @@
         "_desc": "Create a GitHub issue with title, body, and labels"
       },
       {
-        "op": "Stage", "id": "REGISTER:kv_set",
+        "op": "Stage", "id": "9d885082",
         "_comment": "Save issue_number mappings back into DagState",
         "_desc": "Store a JSON value under a key"
       }

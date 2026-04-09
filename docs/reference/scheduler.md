@@ -5,7 +5,7 @@
 ## Configuration
 
 ```toml
-# scheduler.toml
+# scheduler.json
 
 [[jobs]]
 name        = "sprint-tick"
@@ -25,7 +25,7 @@ enabled     = false                          # enable at sprint close
 ## Running
 
 ```bash
-noether-scheduler --config scheduler.toml
+noether-scheduler --config scheduler.json
 ```
 
 ## Manual Execution

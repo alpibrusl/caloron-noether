@@ -6,7 +6,7 @@
     "op": "Sequential",
     "stages": [
       {
-        "op": "Stage", "id": "REGISTER:kv_get",
+        "op": "Stage", "id": "339bd6d0",
         "_comment": "Load final DagState from KV",
         "_desc": "Retrieve a JSON value by key"
       },
@@ -32,7 +32,7 @@
         "_desc": "Generate a sprint retro report in Markdown"
       },
       {
-        "op": "Stage", "id": "REGISTER:write_file",
+        "op": "Stage", "id": "5867b11d",
         "_comment": "Write report to reports/{sprint_id}.md",
         "_desc": "Write text content to a file at the specified path"
       }

@@ -61,7 +61,7 @@ noether run compositions/sprint_tick.json \
   --input '{"sprint_id": "test", "repo": "owner/repo", "stall_threshold_m": 20}'
 
 # 6. Or start the scheduler for continuous operation
-noether-scheduler --config scheduler.toml
+noether-scheduler --config scheduler.json
 ```
 
 ## Stage Overview

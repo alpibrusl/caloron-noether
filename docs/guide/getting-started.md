@@ -73,7 +73,7 @@ noether run compositions/retro.json \
 For continuous operation, use `noether-scheduler`:
 
 ```bash
-noether-scheduler --config scheduler.toml
+noether-scheduler --config scheduler.json
 ```
 
 This runs `sprint_tick.json` every 60 seconds until the sprint is complete.
