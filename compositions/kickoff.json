@@ -1,20 +1,20 @@
 {
   "description": "Caloron sprint kickoff — generate DAG, create GitHub issues",
   "version": "0.1.0",
-  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
+  "_note": "All stage IDs resolved — registered in local Noether store",
   "root": {
     "op": "Sequential",
     "stages": [
       {
-        "op": "Stage", "id": "REGISTER:fetch_repo_context",
+        "op": "Stage", "id": "6fcd608e",
         "_desc": "Fetch repository context for sprint planning"
       },
       {
-        "op": "Stage", "id": "REGISTER:generate_sprint_dag",
+        "op": "Stage", "id": "11e6cba0",
         "_desc": "Generate a sprint DAG from a brief and repo context"
       },
       {
-        "op": "Stage", "id": "REGISTER:dag_validate",
+        "op": "Stage", "id": "77ddc789",
         "_desc": "Validate a sprint DAG for structural correctness"
       },
       {
@@ -23,7 +23,7 @@
         "_desc": "Store a JSON value under a key"
       },
       {
-        "op": "Stage", "id": "REGISTER:github_create_issue",
+        "op": "Stage", "id": "3261641e",
         "_comment": "Create one issue per task (fanout over tasks list)",
         "_desc": "Create a GitHub issue with title, body, and labels"
       },

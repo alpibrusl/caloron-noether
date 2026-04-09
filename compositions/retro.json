@@ -1,7 +1,7 @@
 {
   "description": "Caloron sprint retro — collect feedback, analyse, write report",
   "version": "0.1.0",
-  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
+  "_note": "All stage IDs resolved — registered in local Noether store",
   "root": {
     "op": "Sequential",
     "stages": [
@@ -14,21 +14,21 @@
         "op": "Parallel",
         "branches": {
           "feedback": {
-            "op": "Stage", "id": "REGISTER:collect_sprint_feedback",
+            "op": "Stage", "id": "fd9ee836",
             "_desc": "Collect structured feedback from sprint issue comments"
           },
           "kpis": {
-            "op": "Stage", "id": "REGISTER:compute_sprint_kpis",
+            "op": "Stage", "id": "b9edfdd6",
             "_desc": "Compute sprint KPIs from final DAG state"
           }
         }
       },
       {
-        "op": "Stage", "id": "REGISTER:analyze_sprint_feedback",
+        "op": "Stage", "id": "25c5249d",
         "_desc": "Analyze sprint feedback into themes, improvements, and learnings"
       },
       {
-        "op": "Stage", "id": "REGISTER:write_retro_report",
+        "op": "Stage", "id": "def26bd3",
         "_desc": "Generate a sprint retro report in Markdown"
       },
       {

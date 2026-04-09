@@ -1,7 +1,7 @@
 {
   "description": "Spawn an agent worktree and harness process for a task",
   "version": "0.1.0",
-  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
+  "_note": "All stage IDs resolved — registered in local Noether store",
   "root": {
     "op": "Sequential",
     "stages": [

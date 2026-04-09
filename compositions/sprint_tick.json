@@ -1,7 +1,7 @@
 {
   "description": "Caloron sprint tick — poll GitHub, advance DAG, supervise agents",
   "version": "0.1.0",
-  "_note": "Stage IDs (REGISTER:*) must be replaced with real hashes after running ./register_stages.sh",
+  "_note": "All stage IDs resolved — registered in local Noether store",
   "root": {
     "op": "Sequential",
     "stages": [
@@ -24,7 +24,7 @@
         }
       },
       {
-        "op": "Stage", "id": "REGISTER:github_poll_events",
+        "op": "Stage", "id": "88a43628",
         "_desc": "Poll GitHub for sprint events since a timestamp"
       },
       {
@@ -33,7 +33,7 @@
         "_desc": "Store a JSON value under a key"
       },
       {
-        "op": "Stage", "id": "REGISTER:dag_evaluate",
+        "op": "Stage", "id": "7707fb69",
         "_desc": "Evaluate a sprint DAG from GitHub events"
       },
       {
@@ -48,23 +48,23 @@
             "op": "Sequential",
             "stages": [
               {
-                "op": "Stage", "id": "REGISTER:check_agent_health",
+                "op": "Stage", "id": "4d2ac583",
                 "_desc": "Check agent health from heartbeat history"
               },
               {
-                "op": "Stage", "id": "REGISTER:decide_intervention",
+                "op": "Stage", "id": "4386dc57",
                 "_desc": "Decide supervisor intervention for unhealthy agents"
               }
             ]
           },
           "dag_status": {
-            "op": "Stage", "id": "REGISTER:dag_is_complete",
+            "op": "Stage", "id": "a3499939",
             "_desc": "Check if a sprint DAG is complete"
           }
         }
       },
       {
-        "op": "Stage", "id": "REGISTER:execute_actions",
+        "op": "Stage", "id": "b8e3da9c",
         "_desc": "Execute DAG and supervisor actions via GitHub API and shell"
       }
     ]
