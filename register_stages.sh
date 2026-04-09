@@ -189,10 +189,51 @@ register "generate_sprint_dag" \
     "Generate a sprint DAG from a brief and repo context" \
     '{"type": "Record", "fields": {"brief": "Text", "repo_context": "Any", "num_agents": "Number"}}' \
     '{"type": "Record", "fields": {"dag": "Any"}}' \
-    '[{"effect": "Pure"}]' \
+    '[{"effect": "Llm"}, {"effect": "NonDeterministic"}]' \
     "python3" \
     "$STAGES_DIR/kickoff/generate_dag.py"
 
+# === New stages (from review) ===
+
+register "analyze_sprint_feedback" \
+    "Analyze sprint feedback into themes, improvements, and learnings" \
+    '{"type": "Record", "fields": {"feedback_items": {"type": "List", "element": "Any"}, "kpis": "Any"}}' \
+    '{"type": "Record", "fields": {"themes": {"type": "List", "element": "Text"}, "improvements": {"type": "List", "element": "Text"}, "learnings": {"type": "List", "element": "Text"}, "sentiment": "Text"}}' \
+    '[{"effect": "Pure"}]' \
+    "python3" \
+    "$STAGES_DIR/retro/analyze_feedback.py"
+
+register "unblocked_tasks" \
+    "Return tasks that are Ready in the DAG" \
+    '{"type": "Record", "fields": {"state": "Any"}}' \
+    '{"type": "Record", "fields": {"ready_tasks": {"type": "List", "element": "Any"}}}' \
+    '[{"effect": "Pure"}]' \
+    "python3" \
+    "$STAGES_DIR/dag/unblocked_tasks.py"
+
+register "get_pr_status" \
+    "Get the review status of a GitHub pull request" \
+    '{"type": "Record", "fields": {"repo": "Text", "pr_number": "Number", "token_env": "Text"}}' \
+    '{"type": "Record", "fields": {"state": "Text", "merged": "Bool", "review_state": "Text", "reviewers": {"type": "List", "element": "Text"}}}' \
+    '[{"effect": "Network"}, {"effect": "Fallible"}]' \
+    "python3" \
+    "$STAGES_DIR/github/get_pr_status.py"
+
+register "execute_actions" \
+    "Execute DAG and supervisor actions via GitHub API and shell" \
+    '{"type": "Record", "fields": {"repo": "Text", "token_env": "Text", "shell_url": "Text", "dag_actions": {"type": "List", "element": "Any"}, "supervisor_actions": {"type": "List", "element": "Any"}, "sprint_id": "Text"}}' \
+    '{"type": "Record", "fields": {"actions_taken": {"type": "List", "element": "Text"}, "errors": {"type": "List", "element": "Text"}}}' \
+    '[{"effect": "Network"}, {"effect": "Fallible"}]' \
+    "python3" \
+    "$STAGES_DIR/dag/execute_actions.py"
+
 echo ""
-echo "Done. Copy the stage IDs into compositions/*.json"
-echo "Then run: noether run --dry-run compositions/sprint_tick.json --input '{...}'"
+echo "Done. Now replace REGISTER:* placeholders in compositions/*.json:"
+echo ""
+echo "  For each registered stage, run:"
+echo "    noether stage search '<description>' | jq '.data.stages[0].id'"
+echo ""
+echo "  Then replace REGISTER:<name> with the real hash in the composition files."
+echo ""
+echo "  Or run: noether run --dry-run compositions/sprint_tick.json --input '{...}'"
+echo "  to type-check the graphs."

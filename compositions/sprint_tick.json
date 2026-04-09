@@ -1,41 +1,45 @@
 {
   "description": "Caloron sprint tick — poll GitHub, advance DAG, supervise agents",
   "version": "0.1.0",
+  "_note": "Stage IDs (REGISTER:*) must be replaced with real hashes after running ./register_stages.sh",
   "root": {
     "op": "Sequential",
     "stages": [
       {
         "op": "Parallel",
+        "_comment": "Load all state from KV in parallel",
         "branches": {
           "dag_state": {
-            "op": "Stage", "id": "TODO:kv_get",
-            "_comment": "Load DagState from kv: caloron:{sprint_id}:state"
+            "op": "Stage", "id": "REGISTER:kv_get",
+            "_desc": "Retrieve a JSON value by key"
           },
           "last_poll": {
-            "op": "Stage", "id": "TODO:kv_get",
-            "_comment": "Load last_poll timestamp from kv: caloron:{sprint_id}:last_poll"
+            "op": "Stage", "id": "REGISTER:kv_get",
+            "_desc": "Retrieve a JSON value by key"
           },
           "agents": {
-            "op": "Stage", "id": "TODO:kv_get",
-            "_comment": "Load agents heartbeat map from KV"
+            "op": "Stage", "id": "REGISTER:kv_get",
+            "_desc": "Retrieve a JSON value by key"
           }
         }
       },
       {
-        "op": "Stage", "id": "TODO:github_poll_events",
-        "_comment": "Fetch GitHub events since last_poll"
+        "op": "Stage", "id": "REGISTER:github_poll_events",
+        "_desc": "Poll GitHub for sprint events since a timestamp"
       },
       {
-        "op": "Stage", "id": "TODO:kv_set",
-        "_comment": "Save polled_at as new last_poll"
+        "op": "Stage", "id": "REGISTER:kv_set",
+        "_comment": "Save polled_at as new last_poll",
+        "_desc": "Store a JSON value under a key"
       },
       {
-        "op": "Stage", "id": "TODO:dag_evaluate",
-        "_comment": "Advance task states from events, produce actions list"
+        "op": "Stage", "id": "REGISTER:dag_evaluate",
+        "_desc": "Evaluate a sprint DAG from GitHub events"
       },
       {
-        "op": "Stage", "id": "TODO:kv_set",
-        "_comment": "Persist updated DagState to KV"
+        "op": "Stage", "id": "REGISTER:kv_set",
+        "_comment": "Persist updated DagState",
+        "_desc": "Store a JSON value under a key"
       },
       {
         "op": "Parallel",
@@ -44,24 +48,24 @@
             "op": "Sequential",
             "stages": [
               {
-                "op": "Stage", "id": "TODO:check_agent_health",
-                "_comment": "Classify each agent's health status"
+                "op": "Stage", "id": "REGISTER:check_agent_health",
+                "_desc": "Check agent health from heartbeat history"
               },
               {
-                "op": "Stage", "id": "TODO:decide_intervention",
-                "_comment": "Determine action for each unhealthy agent"
+                "op": "Stage", "id": "REGISTER:decide_intervention",
+                "_desc": "Decide supervisor intervention for unhealthy agents"
               }
             ]
           },
           "dag_status": {
-            "op": "Stage", "id": "TODO:dag_is_complete",
-            "_comment": "Check if sprint is finished"
+            "op": "Stage", "id": "REGISTER:dag_is_complete",
+            "_desc": "Check if a sprint DAG is complete"
           }
         }
       },
       {
-        "op": "Stage", "id": "TODO:execute_actions",
-        "_comment": "Dispatch actions: spawn agents, post comments, merge PRs, escalate. Calls caloron-shell /spawn endpoint."
+        "op": "Stage", "id": "REGISTER:execute_actions",
+        "_desc": "Execute DAG and supervisor actions via GitHub API and shell"
       }
     ]
   }

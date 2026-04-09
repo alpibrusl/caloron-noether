@@ -1,33 +1,40 @@
 {
   "description": "Caloron sprint retro — collect feedback, analyse, write report",
   "version": "0.1.0",
+  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
   "root": {
     "op": "Sequential",
     "stages": [
       {
-        "op": "Stage", "id": "STAGE:kv_get",
-        "_comment": "Load final DagState from KV"
+        "op": "Stage", "id": "REGISTER:kv_get",
+        "_comment": "Load final DagState from KV",
+        "_desc": "Retrieve a JSON value by key"
       },
       {
         "op": "Parallel",
         "branches": {
           "feedback": {
-            "op": "Stage", "id": "STAGE:collect_sprint_feedback",
-            "_comment": "Fetch feedback YAML from issue comments"
+            "op": "Stage", "id": "REGISTER:collect_sprint_feedback",
+            "_desc": "Collect structured feedback from sprint issue comments"
           },
           "kpis": {
-            "op": "Stage", "id": "STAGE:compute_sprint_kpis",
-            "_comment": "Compute completion rate, velocity, interventions"
+            "op": "Stage", "id": "REGISTER:compute_sprint_kpis",
+            "_desc": "Compute sprint KPIs from final DAG state"
           }
         }
       },
       {
-        "op": "Stage", "id": "STAGE:write_retro_report",
-        "_comment": "Generate Markdown retro report"
+        "op": "Stage", "id": "REGISTER:analyze_sprint_feedback",
+        "_desc": "Analyze sprint feedback into themes, improvements, and learnings"
       },
       {
-        "op": "Stage", "id": "STAGE:write_file",
-        "_comment": "Write report to reports/{sprint_id}.md"
+        "op": "Stage", "id": "REGISTER:write_retro_report",
+        "_desc": "Generate a sprint retro report in Markdown"
+      },
+      {
+        "op": "Stage", "id": "REGISTER:write_file",
+        "_comment": "Write report to reports/{sprint_id}.md",
+        "_desc": "Write text content to a file at the specified path"
       }
     ]
   }

@@ -1,16 +1,19 @@
 {
   "description": "Spawn an agent worktree and harness process for a task",
   "version": "0.1.0",
+  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
   "root": {
     "op": "Sequential",
     "stages": [
       {
-        "op": "Stage", "id": "STAGE:http_post",
-        "_comment": "POST to caloron-shell /spawn endpoint with {sprint_id, task_id, agent_id, repo, worktree_base}"
+        "op": "Stage", "id": "REGISTER:http_post",
+        "_comment": "POST to caloron-shell /spawn with sprint_id, task_id, agent_id, repo",
+        "_desc": "Make an HTTP POST request with a JSON body"
       },
       {
-        "op": "Stage", "id": "STAGE:kv_set",
-        "_comment": "Store PID at caloron:{sprint_id}:agent:{agent_id}:pid"
+        "op": "Stage", "id": "REGISTER:kv_set",
+        "_comment": "Store PID at caloron:{sprint_id}:agent:{agent_id}:pid",
+        "_desc": "Store a JSON value under a key"
       }
     ]
   }

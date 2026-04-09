@@ -73,6 +73,30 @@ jobs:
             | python3 stages/retro/compute_kpis.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['completion_rate']==1.0"
 
+      - name: Test unblocked tasks
+        run: |
+          echo '{"state":{"tasks":{"t1":{"status":"Ready","title":"Test","agent_id":"a1"},"t2":{"status":"Pending","title":"Test2","agent_id":"a2"}}}}' \
+            | python3 stages/dag/unblocked_tasks.py \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['ready_tasks'])==1; assert d['ready_tasks'][0]['task_id']=='t1'"
+
+      - name: Test analyze feedback (no feedback)
+        run: |
+          echo '{"feedback_items":[],"kpis":{}}' \
+            | python3 stages/retro/analyze_feedback.py \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['sentiment']=='neutral'"
+
+      - name: Test analyze feedback (with feedback)
+        run: |
+          echo '{"feedback_items":[{"is_parsed_yaml":true,"parsed":{"task_clarity":3,"blockers":["unclear spec"],"self_assessment":"completed","tokens_consumed":5000}}],"kpis":{"completion_rate":1.0}}' \
+            | python3 stages/retro/analyze_feedback.py \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['themes'])>0"
+
+      - name: Test compose message
+        run: |
+          echo '{"agent_id":"a1","task_title":"Fix bug","health_status":"stalled","action":"probe"}' \
+            | python3 stages/supervisor/compose_message.py \
+            | python3 -c "import json,sys; assert 'a1' in json.load(sys.stdin)['message']"
+
   docs:
     name: MkDocs
     runs-on: ubuntu-latest

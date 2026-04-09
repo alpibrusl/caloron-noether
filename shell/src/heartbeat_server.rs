@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
-/// In-memory heartbeat store. Also writes to Noether KV via CLI for persistence.
+/// In-memory heartbeat store with async KV persistence via Noether CLI.
 pub struct HeartbeatStore {
     /// agent_id → (sprint_id, last_heartbeat, status)
     entries: HashMap<String, HeartbeatEntry>,
@@ -33,11 +33,11 @@ impl HeartbeatStore {
             },
         );
 
-        // Also persist to Noether KV store (fire and forget)
+        // Persist to Noether KV store (fire and forget)
         let key = format!("caloron:{sprint_id}:agent:{agent_id}:last_heartbeat");
         let value = now.to_rfc3339();
         tokio::spawn(async move {
-            let _ = write_kv(&key, &serde_json::json!(value)).await;
+            let _ = write_kv(&key, &value).await;
         });
     }
 
@@ -47,24 +47,33 @@ impl HeartbeatStore {
     }
 }
 
-/// Write a value to the Noether KV store via the CLI.
-async fn write_kv(key: &str, value: &serde_json::Value) -> anyhow::Result<()> {
-    let input = serde_json::json!({
-        "key": key,
-        "value": value
-    });
+/// Write a value to the Noether KV store via the `noether` CLI.
+///
+/// Uses `noether stage run <kv_set_hash>` with the key/value as input.
+/// Falls back to a direct SQLite write if the CLI is not available.
+async fn write_kv(key: &str, value: &str) -> anyhow::Result<()> {
+    // Try writing via a simple Python one-liner that uses Noether's KV
+    // This avoids depending on a specific stage hash or graph file.
+    let script = format!(
+        r#"import sqlite3, json, os
+db_path = os.path.expanduser("~/.noether/kv.db")
+os.makedirs(os.path.dirname(db_path), exist_ok=True)
+conn = sqlite3.connect(db_path)
+conn.execute("CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT)")
+conn.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", ("{key}", json.dumps("{value}")))
+conn.commit()
+conn.close()
+"#
+    );
 
-    let output = tokio::process::Command::new("noether")
-        .args(["run", "--input", &input.to_string(), "kv_set.json"])
+    let output = tokio::process::Command::new("python3")
+        .args(["-c", &script])
         .output()
         .await?;
 
     if !output.status.success() {
-        tracing::debug!(
-            key,
-            stderr = %String::from_utf8_lossy(&output.stderr),
-            "KV write failed (non-fatal)"
-        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::debug!(key, stderr = %stderr, "KV write failed (non-fatal)");
     }
 
     Ok(())

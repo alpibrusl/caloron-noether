@@ -1,32 +1,36 @@
 {
   "description": "Caloron sprint kickoff — generate DAG, create GitHub issues",
   "version": "0.1.0",
+  "_note": "Stage IDs (REGISTER:*) must be replaced after running ./register_stages.sh",
   "root": {
     "op": "Sequential",
     "stages": [
       {
-        "op": "Stage", "id": "STAGE:fetch_repo_context",
-        "_comment": "Fetch repo description, recent commits, languages"
+        "op": "Stage", "id": "REGISTER:fetch_repo_context",
+        "_desc": "Fetch repository context for sprint planning"
       },
       {
-        "op": "Stage", "id": "STAGE:generate_sprint_dag",
-        "_comment": "Generate DAG from brief + repo context"
+        "op": "Stage", "id": "REGISTER:generate_sprint_dag",
+        "_desc": "Generate a sprint DAG from a brief and repo context"
       },
       {
-        "op": "Stage", "id": "STAGE:dag_validate",
-        "_comment": "Validate DAG structure (cycles, references)"
+        "op": "Stage", "id": "REGISTER:dag_validate",
+        "_desc": "Validate a sprint DAG for structural correctness"
       },
       {
-        "op": "Stage", "id": "STAGE:kv_set",
-        "_comment": "Save initial DagState to kv: caloron:{sprint_id}:state"
+        "op": "Stage", "id": "REGISTER:kv_set",
+        "_comment": "Save initial DagState to KV",
+        "_desc": "Store a JSON value under a key"
       },
       {
-        "op": "Stage", "id": "STAGE:github_create_issue",
-        "_comment": "Create one issue per task (fanout over tasks)"
+        "op": "Stage", "id": "REGISTER:github_create_issue",
+        "_comment": "Create one issue per task (fanout over tasks list)",
+        "_desc": "Create a GitHub issue with title, body, and labels"
       },
       {
-        "op": "Stage", "id": "STAGE:kv_set",
-        "_comment": "Save issue_number mappings back into DagState"
+        "op": "Stage", "id": "REGISTER:kv_set",
+        "_comment": "Save issue_number mappings back into DagState",
+        "_desc": "Store a JSON value under a key"
       }
     ]
   }
