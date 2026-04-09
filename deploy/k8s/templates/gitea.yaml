@@ -1,0 +1,62 @@
+{{- if .Values.gitea.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitea
+spec:
+  serviceName: gitea
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitea
+  template:
+    metadata:
+      labels:
+        app: gitea
+    spec:
+      containers:
+        - name: gitea
+          image: {{ .Values.gitea.image }}
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GITEA__database__DB_TYPE
+              value: postgres
+            - name: GITEA__database__HOST
+              value: postgres:5432
+            - name: GITEA__database__NAME
+              value: gitea
+            - name: GITEA__database__USER
+              value: caloron
+            - name: GITEA__database__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: POSTGRES_PASSWORD
+            - name: GITEA__server__ROOT_URL
+              value: http://gitea:3000/
+            - name: GITEA__security__INSTALL_LOCK
+              value: "true"
+          volumeMounts:
+            - name: gitea-data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: gitea-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.gitea.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitea
+spec:
+  selector:
+    app: gitea
+  ports:
+    - port: 3000
+      targetPort: 3000
+{{- end }}

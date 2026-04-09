@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caloron-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: caloron-worker
+  template:
+    metadata:
+      labels:
+        app: caloron-worker
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.worker.image }}
+          ports:
+            - containerPort: 7710
+          envFrom:
+            - configMapRef:
+                name: caloron-config
+            - secretRef:
+                name: {{ .Values.secrets.name }}
+          env:
+            - name: CALORON_SHELL_PORT
+              value: "7710"
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            readOnlyRootFilesystem: false  # agents need to write to worktrees
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caloron-worker
+spec:
+  selector:
+    app: caloron-worker
+  ports:
+    - port: 7710
+      targetPort: 7710
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: caloron-worker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: caloron-worker
+  minReplicas: {{ .Values.worker.replicas }}
+  maxReplicas: {{ .Values.worker.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

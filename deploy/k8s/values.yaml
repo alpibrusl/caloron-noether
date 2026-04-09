@@ -1,0 +1,50 @@
+# Default values for caloron Helm chart
+
+coordinator:
+  image: caloron-noether/coordinator:latest
+  replicas: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+worker:
+  image: caloron-noether/worker:latest
+  replicas: 2
+  maxReplicas: 10  # HPA max
+  resources:
+    requests:
+      cpu: "1"
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+gitea:
+  enabled: true
+  image: gitea/gitea:1.22
+  storage: 10Gi
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 5Gi
+
+# API keys — create a secret named "caloron-secrets" with these keys
+secrets:
+  name: caloron-secrets
+  # Keys expected in the secret:
+  #   ANTHROPIC_API_KEY
+  #   GOOGLE_API_KEY (optional)
+  #   OPENAI_API_KEY (optional)
+  #   GITEA_TOKEN
+  #   POSTGRES_PASSWORD
+
+config:
+  repo: "caloron/project"
+  backend: noether
+  agentTimeout: "180"
+  stallThreshold: "20"

@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl && rm -rf /var/lib/apt/lists/*
+
+# Install Noether CLI
+COPY --from=noether-builder /usr/local/bin/noether /usr/local/bin/noether
+
+WORKDIR /app
+
+# Copy stages and compositions
+COPY stages/ /app/stages/
+COPY compositions/ /app/compositions/
+COPY scheduler.json /app/scheduler.json
+COPY stage-specs/ /app/stage-specs/
+
+# Copy orchestrator
+COPY examples/orchestrator.py /app/orchestrator.py
+
+ENV CALORON_BACKEND=noether
+ENV NOETHER_STAGES_DIR=/app/stages
+
+ENTRYPOINT ["python3", "/app/orchestrator.py"]

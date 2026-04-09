@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caloron-config
+data:
+  CALORON_BACKEND: {{ .Values.config.backend | quote }}
+  REPO: {{ .Values.config.repo | quote }}
+  AGENT_TIMEOUT: {{ .Values.config.agentTimeout | quote }}
+  STALL_THRESHOLD: {{ .Values.config.stallThreshold | quote }}
+  GITEA_URL: "http://gitea:3000"
+  DATABASE_URL: "postgres://caloron:$(POSTGRES_PASSWORD)@postgres:5432/caloron"

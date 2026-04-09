@@ -1,0 +1,93 @@
+version: "3.8"
+
+services:
+  # ── Git hosting ─────────────────────────────────────────────
+  gitea:
+    image: gitea/gitea:1.22
+    ports:
+      - "3000:3000"
+    environment:
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=gitea
+      - GITEA__database__USER=caloron
+      - GITEA__database__PASSWD=caloron
+      - GITEA__server__ROOT_URL=http://gitea:3000/
+      - GITEA__server__DISABLE_SSH=true
+      - GITEA__security__INSTALL_LOCK=true
+    volumes:
+      - gitea-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Shared state ────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=caloron
+      - POSTGRES_PASSWORD=caloron
+      - POSTGRES_DB=caloron
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caloron"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Coordinator ─────────────────────────────────────────────
+  # Runs the orchestrator: PO → DAG → dispatch tasks to workers
+  coordinator:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.coordinator
+    environment:
+      - CALORON_BACKEND=noether
+      - NOETHER_STAGES_DIR=/app/stages
+      - GITEA_URL=http://gitea:3000
+      - GITEA_TOKEN=${GITEA_TOKEN}
+      - REPO=${REPO:-caloron/project}
+      - DATABASE_URL=postgres://caloron:caloron@postgres:5432/caloron
+      - WORKER_URLS=http://worker-1:7710,http://worker-2:7710
+      # API keys (coordinator needs them for PO + reviewer agents)
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    depends_on:
+      - gitea
+      - postgres
+      - worker-1
+      - worker-2
+
+  # ── Worker 1 (Claude Code) ─────────────────────────────────
+  worker-1:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    environment:
+      - CALORON_SHELL_PORT=7710
+      - CALORON_SHELL_URL=http://worker-1:7710
+      - GITEA_URL=http://gitea:3000
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - worker-1-workspaces:/workspace
+
+  # ── Worker 2 (Claude Code or Gemini) ───────────────────────
+  worker-2:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.worker
+    environment:
+      - CALORON_SHELL_PORT=7710
+      - CALORON_SHELL_URL=http://worker-2:7710
+      - GITEA_URL=http://gitea:3000
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+    volumes:
+      - worker-2-workspaces:/workspace
+
+volumes:
+  gitea-data:
+  postgres-data:
+  worker-1-workspaces:
+  worker-2-workspaces:

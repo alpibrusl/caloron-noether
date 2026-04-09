@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caloron-coordinator
+spec:
+  replicas: {{ .Values.coordinator.replicas }}
+  selector:
+    matchLabels:
+      app: caloron-coordinator
+  template:
+    metadata:
+      labels:
+        app: caloron-coordinator
+    spec:
+      containers:
+        - name: coordinator
+          image: {{ .Values.coordinator.image }}
+          envFrom:
+            - configMapRef:
+                name: caloron-config
+            - secretRef:
+                name: {{ .Values.secrets.name }}
+          env:
+            - name: WORKER_URLS
+              value: "http://caloron-worker:7710"
+            - name: NOETHER_STAGES_DIR
+              value: "/app/stages"
+          resources:
+            {{- toYaml .Values.coordinator.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caloron-coordinator
+spec:
+  selector:
+    app: caloron-coordinator
+  ports:
+    - port: 8080
+      targetPort: 8080
