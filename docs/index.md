@@ -2,7 +2,7 @@
 
 **Multi-Agent Orchestration via Noether Composition Graphs**
 
-Caloron-Noether is a reimplementation of the [Caloron](https://github.com/alpibrusl/caloron) orchestration platform where all business logic is expressed as [Noether](https://github.com/alpibrusl/solv-noether) composition graphs. The only native code is a ~200-line Rust HTTP server for process management.
+Caloron-Noether is a reimplementation of the [Caloron](https://github.com/alpibrusl/caloron) orchestration platform where all business logic is expressed as [Noether](https://github.com/alpibrusl/noether) composition graphs. The only native code is a ~200-line Rust HTTP server for process management.
 
 ## Why This Exists
 
@@ -44,7 +44,7 @@ graph TB
 
 ```bash
 # 1. Build Noether CLI
-cd ../solv-noether && cargo build -p noether-cli
+cd ../noether   # https://github.com/alpibrusl/noether && cargo build -p noether-cli
 export PATH="$PWD/target/debug:$PATH"
 
 # 2. Register custom stages

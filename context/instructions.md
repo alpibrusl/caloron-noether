@@ -56,20 +56,20 @@ type-checked, content-addressed, and reusable across other projects.
 ### Installed tools
 
 The Noether CLI and scheduler are built from source. The repo is at
-`/home/alpibru/workspace/solv-noether` — you already have it.
+`/path/to/noether` — you already have it.
 
 ```bash
 # Build the noether CLI + scheduler (one-time, and after any Noether changes)
-cd /home/alpibru/workspace/solv-noether
+cd /path/to/noether
 cargo build --release -p noether-cli
 
-cd /home/alpibru/workspace/noether-cloud
+cd /path/to/noether-cloud
 cargo build --release -p caloron-scheduler 2>/dev/null || \
   cargo build --release  # builds all workspace members
 
 # Add both to PATH (add to your shell profile)
-export PATH="/home/alpibru/workspace/solv-noether/target/release:$PATH"
-export PATH="/home/alpibru/workspace/noether-cloud/target/release:$PATH"
+export PATH="/path/to/noether/target/release:$PATH"
+export PATH="/path/to/noether-cloud/target/release:$PATH"
 
 # Verify
 noether version
@@ -78,7 +78,7 @@ noether version
 
 > **No reinstall needed when Noether changes.** Because `caloron-noether` uses path
 > dependencies (see §5 for the `Cargo.toml`), `cargo build` inside `caloron-noether`
-> always compiles the current state of `solv-noether`. The only time you need to
+> always compiles the current state of `noether`. The only time you need to
 > re-run the `cargo build --release -p noether-cli` command above is when you want
 > the updated `noether` CLI binary for running `noether stage search` or
 > `noether run --dry-run` from the terminal.
@@ -107,7 +107,7 @@ export OPENAI_API_KEY=sk-...   # or ANTHROPIC_API_KEY / VERTEX_AI credentials
 
 ```
 workspace/
-├── solv-noether/       ← Noether platform (do not modify unless adding stdlib stages)
+├── noether/       ← Noether platform (do not modify unless adding stdlib stages)
 ├── noether-cloud/      ← Registry + scheduler (already hardened)
 └── caloron-noether/    ← This project (you are building this)
 ```

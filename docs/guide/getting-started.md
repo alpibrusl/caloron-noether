@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Noether CLI** — built from [solv-noether](https://github.com/alpibrusl/solv-noether)
+- **Noether CLI** — built from [noether](https://github.com/alpibrusl/noether)
 - **Python 3.11+** — for stage implementations
 - **Rust 1.75+** — for the shell binary
 - **Nix** (optional) — Noether uses it for hermetic stage execution
@@ -16,7 +16,7 @@ git clone https://github.com/alpibrusl/caloron-noether
 cd caloron-noether
 
 # Build the Noether CLI (if not already in PATH)
-cd ../solv-noether
+cd ../noether   # https://github.com/alpibrusl/noether
 cargo build -p noether-cli
 export PATH="$PWD/target/debug:$PATH"
 

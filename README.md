@@ -28,7 +28,7 @@ All business logic is in Noether stages (Python). The shell only manages process
 
 ```bash
 # 1. Build Noether CLI
-cd ../solv-noether && cargo build -p noether-cli
+cd ../noether   # https://github.com/alpibrusl/noether && cargo build -p noether-cli
 export PATH="$PWD/target/debug:$PATH"
 
 # 2. Register custom stages

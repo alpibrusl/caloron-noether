@@ -174,9 +174,9 @@ automatically:
 
 ```toml
 [dependencies]
-noether-engine = { path = "../../solv-noether/crates/noether-engine", features = ["native"] }
-noether-core   = { path = "../../solv-noether/crates/noether-core" }
-noether-store  = { path = "../../solv-noether/crates/noether-store" }
+noether-engine = { path = "../../noether/crates/noether-engine", features = ["native"] }
+noether-core   = { path = "../../noether/crates/noether-core" }
+noether-store  = { path = "../../noether/crates/noether-store" }
 ```
 
 Then import:
@@ -190,7 +190,7 @@ The `noether` CLI binary (for `noether stage search`, `noether run --dry-run`, e
 needs to be built once and kept in PATH:
 
 ```bash
-cd /home/alpibru/workspace/solv-noether
+cd /path/to/noether
 cargo build --release -p noether-cli
 export PATH="$PWD/target/release:$PATH"
 ```
