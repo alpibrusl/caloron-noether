@@ -16,6 +16,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from agent_versioning import AgentVersionStore, auto_evolve_agents, print_agent_history
+from skill_store import SkillStore
+from hr_agent import run_hr_agent, print_assignments
+from agent_configurator import configure_agent, print_config_summary
+from template_store import scaffold_project
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "c50bad400bd9b8cde3e930cca052eae6ded71f7b")
@@ -29,7 +35,7 @@ LEARNINGS_FILE = os.path.join(os.environ.get("WORK", "/tmp/caloron-full-loop"), 
 # Backend: "direct" (Claude CLI) or "noether" (via Noether stages)
 BACKEND = os.environ.get("CALORON_BACKEND", "direct")
 NOETHER_STAGES_DIR = os.environ.get("NOETHER_STAGES_DIR",
-    str(Path(__file__).parent.parent.parent.parent / "caloron-noether" / "stages"))
+    str(Path(__file__).parent.parent / "stages"))
 
 # API keys — set any of these to use API mode instead of Claude Pro
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -65,6 +71,13 @@ FRAMEWORKS = {
         "args": ["--approval-mode", "full-auto"],
         "prompt_flag": "-p",
         "api_key_env": "OPENAI_API_KEY",
+        "api_key_flag": None,
+    },
+    "open-code": {
+        "cmd": "open-code",
+        "args": ["--non-interactive"],
+        "prompt_flag": "-p",
+        "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": None,
     },
 }
@@ -158,6 +171,51 @@ def noether_write_report(sprint_id: str, kpis: dict, feedback_items: list,
         "started_at": started_at,
         "ended_at": ended_at,
     })
+
+
+# ── Agent feedback parsing ───────────────────────────────────────────────────
+
+def parse_agent_feedback(agent_output: str) -> dict:
+    """Extract structured feedback from agent's stdout.
+
+    Looks for CALORON_FEEDBACK_START ... JSON ... CALORON_FEEDBACK_END block.
+    Returns parsed dict or defaults if not found.
+    """
+    defaults = {
+        "task_clarity": 5,
+        "blockers": [],
+        "tools_used": ["claude-code"],
+        "self_assessment": "completed",
+        "notes": "",
+    }
+
+    if not agent_output:
+        return defaults
+
+    match = re.search(
+        r"CALORON_FEEDBACK_START\s*(.*?)\s*CALORON_FEEDBACK_END",
+        agent_output,
+        re.DOTALL,
+    )
+    if not match:
+        return defaults
+
+    try:
+        feedback = json.loads(match.group(1))
+        # Validate and merge with defaults
+        result = dict(defaults)
+        for key in defaults:
+            if key in feedback:
+                result[key] = feedback[key]
+        # Clamp clarity to 1-10
+        result["task_clarity"] = max(1, min(10, int(result["task_clarity"])))
+        # Validate assessment
+        valid_assessments = ("completed", "partial", "blocked", "failed")
+        if result["self_assessment"] not in valid_assessments:
+            result["self_assessment"] = "completed"
+        return result
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return defaults
 
 
 # ── Gitea API ───────────────────────────────────────────────────────────────
@@ -560,6 +618,9 @@ def main():
     sprint_number = len(learnings["sprints"]) + 1
     po_context = build_po_context(learnings)
 
+    # Load agent version store
+    agent_store = AgentVersionStore(os.path.join(WORK, "agent_versions.json"))
+
     print("=" * 60)
     print(f"  FULL AUTONOMOUS SPRINT #{sprint_number}")
     print(f"  Backend: {BACKEND}")
@@ -568,6 +629,9 @@ def main():
         print(f"  Stages: {NOETHER_STAGES_DIR}")
     if po_context:
         print(f"  (with learnings from {len(learnings['sprints'])} previous sprint(s))")
+    # Show agent versions if any exist
+    if agent_store.agents:
+        print(f"  Agents: {len(agent_store.agents)} with version history")
     print("=" * 60)
     print()
 
@@ -605,6 +669,39 @@ Keep to 2-3 tasks. Tests depend on implementation."""
     for t in tasks:
         deps = ", ".join(t.get("depends_on", [])) or "none"
         print(f"  {t['id']}: {t['title']} (deps: {deps})")
+
+    # ── Step 1.5: HR Agent assigns skills ───────────────────────────────
+    print()
+    print("--- HR Agent: Assigning skills ---")
+    skill_store = SkillStore(os.path.join(WORK, "skill_store.json"))
+    tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
+    print_assignments(tasks)
+
+    # Register agents in version store (or load existing versions)
+    print()
+    print("  Agents:")
+    for t in tasks:
+        tid = t["id"]
+        spec = {
+            "personality": "developer",
+            "model": t.get("model", "balanced"),
+            "framework": t.get("framework", "claude-code"),
+            "capabilities": t.get("capabilities", ["code-writing", "python"]),
+            "extra_instructions": "",
+        }
+        version = agent_store.register(tid, spec, f"sprint-{sprint_number}")
+
+        # If agent has evolved, use the latest version's spec
+        current = agent_store.current(tid)
+        if current and current["version"] != "1.0":
+            t["framework"] = current.get("framework", t.get("framework", "claude-code"))
+            # Prepend evolved instructions to agent prompt
+            evolved_instructions = current.get("extra_instructions", "")
+            if evolved_instructions:
+                t["agent_prompt"] = f"{evolved_instructions}\n\n{t.get('agent_prompt', t['title'])}"
+            print(f"    {tid}: v{current['version']} (evolved — {current['model']}, [{', '.join(current.get('capabilities', []))}])")
+        else:
+            print(f"    {tid}: v{version} (new)")
     print()
 
     # ── Step 2: Create issues ───────────────────────────────────────────
@@ -648,22 +745,55 @@ Keep to 2-3 tasks. Tests depend on implementation."""
             print(f"  Issue: #{issue_num} | Framework: {framework}")
             print(f"{'=' * 50}")
 
+            # Scaffold project from template (if first task and project is empty)
+            task_text = f"{task.get('title', '')} {task.get('agent_prompt', '')}"
+            scaffold = scaffold_project(project, task.get("skills", []), task_text)
+            if scaffold.get("files"):
+                print(f"  Scaffold: {scaffold['template_name']} ({len(scaffold['files'])} files)")
+
+            # Configure the agent's worktree with skill-specific files
+            config_result = configure_agent(project, task, framework)
+            extra_cli_flags = config_result.get("extra_flags", [])
+            print_config_summary(project, framework)
+
             # Agent writes code (with supervisor timeout)
             full_prompt = f"""{prompt}
 
-Rules: Only create/modify files in src/ and tests/. Use type hints. When done, stop."""
+Rules:
+- Only create/modify files in src/ and tests/
+- Use type hints
+- Read CLAUDE.md for skill-specific instructions
+- When COMPLETELY done, output a feedback block as the LAST thing you print, in this exact format:
+
+CALORON_FEEDBACK_START
+{{
+  "task_clarity": <1-10 how clear was the task description>,
+  "blockers": [<list of strings describing what slowed you down or was unclear>],
+  "tools_used": [<list of tools/libraries you used>],
+  "self_assessment": "<completed|partial|blocked|failed>",
+  "notes": "<any observations about the task>"
+}}
+CALORON_FEEDBACK_END"""
 
             print(f"  Agent running ({framework}, sandboxed, supervised)...")
             agent_out, success = run_agent_with_supervision(
                 SANDBOX, project, full_prompt, tid, issue_num, supervisor, framework)
 
+            # Parse agent's self-reported feedback
+            agent_feedback = parse_agent_feedback(agent_out if success else "")
+
             if not success:
                 blockers.append("Agent timed out and was escalated")
                 assessment = "failed"
             else:
-                assessment = "completed"
+                assessment = agent_feedback.get("self_assessment", "completed")
+                # Use agent-reported blockers
+                agent_blockers = agent_feedback.get("blockers", [])
+                if agent_blockers:
+                    blockers.extend(agent_blockers)
                 for line in agent_out.strip().split("\n")[-2:]:
-                    print(f"    {line}")
+                    if "CALORON_FEEDBACK" not in line:
+                        print(f"    {line}")
 
             # Collect changed files
             subprocess.run(["git", "add", "-A"], cwd=project, capture_output=True)
@@ -779,22 +909,31 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
             task_time_min = max(1, task_time // 60)
 
             # Post feedback on the issue
+            # Use agent's self-reported feedback (not hardcoded guesses)
+            reported_clarity = agent_feedback.get("task_clarity", 5)
+            reported_tools = agent_feedback.get("tools_used", ["claude-code"])
+            reported_notes = agent_feedback.get("notes", "")
+
             post_feedback(
                 issue_number=issue_num,
                 task_id=tid,
                 agent_role="developer",
-                task_clarity=7 if not blockers else 4,
+                task_clarity=reported_clarity,
                 blockers=blockers,
-                tools_used=["claude-code", "bash"],
+                tools_used=reported_tools,
                 time_min=task_time_min,
                 assessment=assessment,
-                notes=f"Files: {', '.join(changed) if changed else 'none'}. Time: {task_time}s.",
+                notes=f"{reported_notes} | Files: {', '.join(changed) if changed else 'none'}. Time: {task_time}s.",
             )
-            print(f"  Feedback posted on #{issue_num}")
+            print(f"  Feedback: clarity={reported_clarity}/10, assessment={assessment}, "
+                  f"blockers={len(blockers)}, tools={reported_tools}")
 
             feedback_data.append({
                 "task_id": tid, "time_s": task_time, "files": changed,
                 "assessment": assessment, "blockers": blockers,
+                "clarity": reported_clarity,
+                "tools": reported_tools,
+                "notes": reported_notes,
             })
 
             completed.add(tid)
@@ -808,6 +947,50 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
     print()
     sprint_start_iso = datetime.fromtimestamp(sprint_start, tz=timezone.utc).isoformat()
     run_retro(list(issue_map.values()), supervisor, sprint_time, sprint_start_iso)
+
+    # ── Step 9: Auto-evolve agents based on retro ──────────────────────
+    print("--- Step 9: Agent Evolution ---")
+
+    # Build retro summary for evolution decisions
+    total_tasks = len(feedback_data)
+    failed_tasks = sum(1 for f in feedback_data if f["assessment"] == "failed")
+    all_blockers = []
+    for f in feedback_data:
+        all_blockers.extend(f.get("blockers", []))
+
+    # Use agent-reported clarity (not hardcoded guesses)
+    clarities = [f.get("clarity", 5) for f in feedback_data]
+    avg_clarity = sum(clarities) / len(clarities) if clarities else 5
+
+    retro_summary = {
+        "avg_clarity": avg_clarity,
+        "failure_rate": failed_tasks / max(total_tasks, 1),
+        "supervisor_events": len(supervisor.events),
+        "avg_review_cycles": sum(1 for f in feedback_data if f.get("blockers")) / max(total_tasks, 1),
+        "blockers": all_blockers,
+    }
+
+    # Record agent-reported performance for each agent
+    for f in feedback_data:
+        agent_store.record_performance(f["task_id"], {
+            "clarity": f.get("clarity", 5),
+            "completion_rate": 1.0 if f["assessment"] == "completed" else 0.0,
+            "review_cycles": 1 + len(f.get("blockers", [])),
+            "time_s": f["time_s"],
+            "tools": f.get("tools", []),
+            "notes": f.get("notes", ""),
+        })
+
+    # Auto-evolve
+    changes = auto_evolve_agents(agent_store, retro_summary, f"sprint-{sprint_number}")
+    if not changes:
+        print("  No evolution needed — agents performing well")
+    print()
+
+    # Show agent history
+    print("--- Agent Versions ---")
+    for agent_id in agent_store.agents:
+        print_agent_history(agent_store, agent_id)
 
     # ── Gitea state ─────────────────────────────────────────────────────
     print("--- Gitea State ---")
