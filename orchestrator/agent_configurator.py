@@ -15,21 +15,85 @@ import os
 from pathlib import Path
 
 
+def install_dependencies(worktree: str, deps: dict):
+    """Install skill dependencies into the worktree environment.
+
+    Handles: pip packages, npm packages, setup commands.
+    Nix packages are handled by the Nix flake generator (not here).
+    """
+    import subprocess
+
+    pip_pkgs = deps.get("pip", [])
+    npm_pkgs = deps.get("npm", [])
+    setup_cmds = deps.get("setup", [])
+
+    if pip_pkgs:
+        # Write requirements.txt for pip packages
+        req_path = os.path.join(worktree, "requirements-skills.txt")
+        existing = set()
+        if os.path.exists(req_path):
+            existing = set(Path(req_path).read_text().strip().split("\n"))
+        all_pkgs = sorted(existing | set(pip_pkgs))
+        Path(req_path).write_text("\n".join(all_pkgs) + "\n")
+
+        # Install (best effort — may fail in sandbox)
+        try:
+            subprocess.run(
+                ["pip", "install", "--quiet", "--user"] + pip_pkgs,
+                cwd=worktree, capture_output=True, timeout=60)
+        except Exception:
+            pass  # Agent can install from requirements-skills.txt
+
+    if npm_pkgs:
+        # Add to package.json devDependencies if it exists
+        pkg_path = os.path.join(worktree, "package.json")
+        if os.path.exists(pkg_path):
+            try:
+                pkg = json.loads(Path(pkg_path).read_text())
+                dev_deps = pkg.setdefault("devDependencies", {})
+                for npm_pkg in npm_pkgs:
+                    if npm_pkg not in dev_deps:
+                        dev_deps[npm_pkg] = "*"
+                Path(pkg_path).write_text(json.dumps(pkg, indent=2))
+            except Exception:
+                pass
+
+    if setup_cmds:
+        # Write setup commands to a script the agent can run
+        setup_path = os.path.join(worktree, "setup-skills.sh")
+        lines = ["#!/bin/bash", "# Auto-generated: install skill dependencies"]
+        lines.extend(setup_cmds)
+        Path(setup_path).write_text("\n".join(lines) + "\n")
+        os.chmod(setup_path, 0o755)
+
+        # Try running setup (best effort)
+        for cmd in setup_cmds:
+            try:
+                subprocess.run(
+                    cmd.split(), cwd=worktree,
+                    capture_output=True, timeout=120)
+            except Exception:
+                pass
+
+
 def configure_agent(
     worktree: str,
     task: dict,
     framework: str = "claude-code",
 ) -> dict:
-    """Configure the agent's worktree with skill-specific files.
+    """Configure the agent's worktree with skill-specific files and install dependencies.
 
     Returns a dict with any extra CLI flags to pass to the framework.
     """
     skills = task.get("skills", [])
     mcp_urls = task.get("mcp_urls", [])
     model = task.get("model", "balanced")
-    nix_packages = task.get("nix_packages", [])
+    deps = task.get("dependencies", {})
 
     extra_flags = []
+
+    # Install dependencies from skills
+    install_dependencies(worktree, deps)
 
     if framework == "claude-code":
         extra_flags = configure_claude_code(worktree, task, skills, mcp_urls)

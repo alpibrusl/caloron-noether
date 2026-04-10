@@ -54,6 +54,15 @@ SKILL_KEYWORDS = {
     "jira": "jira-management",
     "search": "web-search",
     "browse": "browser-automation",
+    "playwright": "browser-automation",
+    "screenshot": "browser-automation",
+    "selenium": "browser-automation",
+    "scrape": "web-scraping",
+    "scraping": "web-scraping",
+    "beautifulsoup": "web-scraping",
+    "crawl": "web-scraping",
+    "parse html": "web-scraping",
+    "httpx": "web-scraping",
     "github": "github-pr-management",
     "pr": "github-pr-management",
     "git": "git-operations",
@@ -99,12 +108,23 @@ def analyze_task_skills(task: dict, store: SkillStore, preferred_framework: str 
     elif any(kw in text for kw in FAST_MODEL_KEYWORDS):
         model = "fast"
 
-    # Collect all nix packages, credentials, mcp urls
+    # Collect ALL dependencies from assigned skills
     nix_packages = set()
+    pip_packages = set()
+    npm_packages = set()
+    cargo_packages = set()
+    setup_commands = []
+    env_vars = {}
     credentials = set()
     mcp_urls = []
+
     for skill in matched_skills.values():
         nix_packages.update(skill.nix_packages)
+        pip_packages.update(skill.pip_packages)
+        npm_packages.update(skill.npm_packages)
+        cargo_packages.update(skill.cargo_packages)
+        setup_commands.extend(skill.setup_commands)
+        env_vars.update(skill.env_vars)
         credentials.update(skill.credentials)
         if skill.mcp_url:
             mcp_urls.append({"name": skill.name, "url": skill.mcp_url})
@@ -114,7 +134,15 @@ def analyze_task_skills(task: dict, store: SkillStore, preferred_framework: str 
         "skills": list(matched_skills.keys()),
         "framework": preferred_framework,
         "model": model,
-        "nix_packages": sorted(nix_packages),
+        "dependencies": {
+            "nix": sorted(nix_packages),
+            "pip": sorted(pip_packages),
+            "npm": sorted(npm_packages),
+            "cargo": sorted(cargo_packages),
+            "setup": list(dict.fromkeys(setup_commands)),  # deduplicate, preserve order
+            "env": env_vars,
+        },
+        "nix_packages": sorted(nix_packages),  # backward compat
         "credentials": sorted(credentials),
         "mcp_urls": mcp_urls,
     }

@@ -25,20 +25,37 @@ class Skill:
         self.description = data.get("description", "")
         self.frameworks = data.get("frameworks", [])
         self.mcp_url = data.get("mcp_url", "")
-        self.nix_packages = data.get("nix_packages", [])
         self.credentials = data.get("credentials", [])
         self.tags = data.get("tags", [])
 
+        # Full dependency specification — everything needed to make this skill work
+        deps = data.get("dependencies", {})
+        self.nix_packages = deps.get("nix", data.get("nix_packages", []))
+        self.pip_packages = deps.get("pip", [])
+        self.npm_packages = deps.get("npm", [])
+        self.cargo_packages = deps.get("cargo", [])
+        self.setup_commands = deps.get("setup", [])  # run after install (e.g. "playwright install")
+        self.env_vars = deps.get("env", {})  # extra env vars this skill needs
+
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type": self.type,
             "description": self.description,
             "frameworks": self.frameworks,
             "mcp_url": self.mcp_url,
-            "nix_packages": self.nix_packages,
             "credentials": self.credentials,
             "tags": self.tags,
+            "dependencies": {},
         }
+        if self.nix_packages: d["dependencies"]["nix"] = self.nix_packages
+        if self.pip_packages: d["dependencies"]["pip"] = self.pip_packages
+        if self.npm_packages: d["dependencies"]["npm"] = self.npm_packages
+        if self.cargo_packages: d["dependencies"]["cargo"] = self.cargo_packages
+        if self.setup_commands: d["dependencies"]["setup"] = self.setup_commands
+        if self.env_vars: d["dependencies"]["env"] = self.env_vars
+        # Backward compat
+        d["nix_packages"] = self.nix_packages
+        return d
 
     def supports_framework(self, framework: str) -> bool:
         return framework in self.frameworks
@@ -111,21 +128,29 @@ class SkillStore:
                 "type": "skill",
                 "description": "Write Python code with type hints, use pip/poetry",
                 "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "aider", "codex-cli", "open-code"],
-                "nix_packages": ["python311"],
+                "dependencies": {
+                    "nix": ["python311"],
+                    "pip": ["ruff"],
+                },
                 "tags": ["code", "python"],
             },
             "rust-development": {
                 "type": "skill",
                 "description": "Write Rust code, use cargo, clippy",
                 "frameworks": ["claude-code", "cursor-cli", "aider"],
-                "nix_packages": ["rustc", "cargo", "clippy"],
+                "dependencies": {
+                    "nix": ["rustc", "cargo", "clippy", "rustfmt"],
+                },
                 "tags": ["code", "rust"],
             },
             "typescript-development": {
                 "type": "skill",
                 "description": "Write TypeScript/JavaScript, use npm/pnpm",
                 "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "aider", "codex-cli", "open-code"],
-                "nix_packages": ["nodejs_20"],
+                "dependencies": {
+                    "nix": ["nodejs_20"],
+                    "npm": ["typescript"],
+                },
                 "tags": ["code", "typescript", "javascript", "frontend"],
             },
 
@@ -134,14 +159,20 @@ class SkillStore:
                 "type": "skill",
                 "description": "Write and run pytest tests with parametrize, fixtures, mocks",
                 "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "aider", "codex-cli", "open-code"],
-                "nix_packages": ["python311"],
+                "dependencies": {
+                    "nix": ["python311"],
+                    "pip": ["pytest", "pytest-cov"],
+                },
                 "tags": ["testing", "python"],
             },
             "jest-testing": {
                 "type": "skill",
                 "description": "Write and run Jest tests for TypeScript/JavaScript",
                 "frameworks": ["claude-code", "cursor-cli", "open-code"],
-                "nix_packages": ["nodejs_20"],
+                "dependencies": {
+                    "nix": ["nodejs_20"],
+                    "npm": ["jest", "@testing-library/react"],
+                },
                 "tags": ["testing", "typescript", "javascript"],
             },
 
@@ -150,7 +181,10 @@ class SkillStore:
                 "type": "skill",
                 "description": "Load, transform, analyze data with pandas, numpy",
                 "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "codex-cli", "open-code"],
-                "nix_packages": ["python311"],
+                "dependencies": {
+                    "nix": ["python311"],
+                    "pip": ["pandas", "numpy"],
+                },
                 "tags": ["data", "python", "analytics"],
             },
             "sql-database": {
@@ -158,7 +192,11 @@ class SkillStore:
                 "description": "Query and modify PostgreSQL/SQLite databases",
                 "frameworks": ["claude-code", "cursor-cli", "open-code"],
                 "mcp_url": "postgresql://...",
-                "nix_packages": ["postgresql_16"],
+                "dependencies": {
+                    "nix": ["postgresql_16"],
+                    "pip": ["sqlalchemy", "asyncpg", "psycopg2-binary"],
+                    "npm": ["@modelcontextprotocol/server-postgres"],
+                },
                 "credentials": ["DATABASE_URL"],
                 "tags": ["data", "database"],
             },
@@ -174,13 +212,31 @@ class SkillStore:
                 "type": "skill",
                 "description": "Browse websites, extract content, take screenshots",
                 "frameworks": ["claude-code", "cursor-cli", "open-code"],
-                "tags": ["research", "web", "browser"],
+                "dependencies": {
+                    "nix": ["python311", "chromium"],
+                    "pip": ["playwright"],
+                    "setup": ["playwright install chromium"],
+                },
+                "tags": ["research", "web", "browser", "scraping"],
+            },
+            "web-scraping": {
+                "type": "skill",
+                "description": "Scrape web pages, parse HTML, extract structured data",
+                "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "open-code"],
+                "dependencies": {
+                    "nix": ["python311"],
+                    "pip": ["httpx", "beautifulsoup4", "lxml"],
+                },
+                "tags": ["web", "scraping", "data"],
             },
             "rest-api-development": {
                 "type": "skill",
                 "description": "Build REST APIs with FastAPI/Flask/Express",
                 "frameworks": ["claude-code", "cursor-cli", "gemini-cli", "aider", "codex-cli", "open-code"],
-                "nix_packages": ["python311"],
+                "dependencies": {
+                    "nix": ["python311"],
+                    "pip": ["fastapi", "uvicorn", "pydantic", "httpx"],
+                },
                 "tags": ["api", "web", "backend"],
             },
 
