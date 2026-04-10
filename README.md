@@ -45,6 +45,19 @@ CALORON_SHELL_PORT=7710 ./target/debug/caloron-shell
 noether-scheduler --config scheduler.json
 ```
 
+## Documentation
+
+Full docs: [docs/](docs/) — build locally with `mkdocs serve`.
+
+- [Getting Started](docs/guide/getting-started.md)
+- [Architecture](docs/guide/architecture.md)
+- [Stage Catalog](docs/reference/stage-catalog.md)
+- [Composition Graphs](docs/guide/compositions.md)
+- [Shell API](docs/reference/shell-api.md)
+- [KV Conventions](docs/reference/kv-conventions.md)
+- [vs Original Caloron](docs/comparison.md)
+- [Deployment (Docker + K8s)](deploy/README.md)
+
 ## Stage Promotion Path
 
 All stages start as Python. When a stage meets all four criteria (generality, hot path, stable schema, worth the lines), it can be promoted to Rust via `InlineRegistry` — zero graph changes needed. See `context/inline-stages.md`.
