@@ -21,6 +21,7 @@ from skill_store import SkillStore
 from hr_agent import run_hr_agent, print_assignments
 from agent_configurator import configure_agent, print_config_summary
 from template_store import scaffold_project
+from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -1007,7 +1008,12 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
         for i in sorted(issues, key=lambda x: x.get("number", 0)):
             print(f"  #{i['number']}: {i['title']} [{i['state']}] ({i.get('comments', 0)} comments)")
 
+    # ── Step 10: Post-sprint deploy ────────────────────────────────────
     print()
+    print("--- Step 10: Deploy ---")
+    deploy_result = post_sprint_deploy(project, f"sprint-{sprint_number}")
+    print_deploy_summary(deploy_result)
+
     print("=" * 60)
     print(f"  SPRINT COMPLETE — {sprint_time}s")
     print("=" * 60)
