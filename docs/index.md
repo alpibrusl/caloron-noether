@@ -76,3 +76,4 @@ noether-scheduler --config scheduler.json
 | **Total** | **16 stages** | | **~900** |
 
 All stages start as Python. When schemas stabilize, they can be promoted to Rust via `InlineRegistry` — zero graph changes needed.
+
