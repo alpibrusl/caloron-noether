@@ -45,19 +45,17 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting Started: guide/getting-started.md
   - Guide:
-    - Getting Started: guide/getting-started.md
     - Architecture: guide/architecture.md
     - Stages: guide/stages.md
-    - Composition Graphs: guide/compositions.md
-    - The Shell: guide/shell.md
+    - Compositions: guide/compositions.md
+    - Shell API: guide/shell.md
     - Stage Promotion: guide/promotion.md
   - Reference:
     - Stage Catalog: reference/stage-catalog.md
     - KV Conventions: reference/kv-conventions.md
-    - Scheduler Config: reference/scheduler.md
-    - Shell API: reference/shell-api.md
+    - Scheduler: reference/scheduler.md
   - Examples:
-    - E2E Sprint: examples/e2e-sprint.md
     - Comparison Test: examples/comparison.md
   - vs Original Caloron: comparison.md

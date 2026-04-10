@@ -2,88 +2,60 @@
 
 ## Prerequisites
 
-- **Noether CLI** — built from [noether](https://github.com/alpibrusl/noether)
-- **Python 3.11+** — for stage implementations
-- **Rust 1.75+** — for the shell binary
-- **Nix** (optional) — Noether uses it for hermetic stage execution
-- **Docker** (optional) — for running Gitea locally
+- **Python 3.11+** (stages run as Python scripts)
+- **Rust 1.75+** (for the shell binary)
+- **Noether CLI** — from [alpibrusl/noether](https://github.com/alpibrusl/noether)
+- **Docker** (for Gitea, or use GitHub)
+- **Claude Code** (Pro subscription or `ANTHROPIC_API_KEY`)
 
 ## Installation
 
 ```bash
-# Clone
 git clone https://github.com/alpibrusl/caloron-noether
 cd caloron-noether
 
-# Build the Noether CLI (if not already in PATH)
-cd ../noether   # https://github.com/alpibrusl/noether
-cargo build -p noether-cli
-export PATH="$PWD/target/debug:$PATH"
-
-# Verify
-noether version
-# → { "ok": true, "data": { "version": "0.1.0" } }
+# Build the Noether CLI
+cd ../noether
+cargo build --release -p noether-cli
+export PATH="$PWD/target/release:$PATH"
 
 # Build the shell
 cd ../caloron-noether
 cargo build -p caloron-shell
-```
 
-## Register Stages
-
-Custom stages must be registered in the Noether store before compositions can reference them:
-
-```bash
+# Register custom stages
 ./register_stages.sh
-```
-
-This registers all 16 stages and prints their hash IDs. Copy these into the composition graphs.
-
-## Configuration
-
-Set environment variables:
-
-```bash
-export GITHUB_TOKEN="ghp_..."          # or GITEA_TOKEN for local testing
-export ANTHROPIC_API_KEY="sk-ant-..."  # for LLM stages (kickoff, retro)
-export CALORON_SHELL_PORT=7710         # shell HTTP port (default: 7710)
 ```
 
 ## Run a Sprint
 
 ```bash
-# 1. Start the shell (background)
-./target/debug/caloron-shell &
-
-# 2. Kickoff — generate DAG and create issues
-noether run compositions/kickoff.json \
-  --input '{"brief": "add user auth", "repo": "owner/repo", "num_agents": 2}'
-
-# 3. Run sprint ticks manually (or use the scheduler)
-noether run compositions/sprint_tick.json \
-  --input '{"sprint_id": "sprint-1", "repo": "owner/repo", "stall_threshold_m": 20}'
-
-# 4. Run retro when complete
-noether run compositions/retro.json \
-  --input '{"sprint_id": "sprint-1", "repo": "owner/repo"}'
-```
-
-## Automated Operation
-
-For continuous operation, use `noether-scheduler`:
-
-```bash
-noether-scheduler --config scheduler.json
-```
-
-This runs `sprint_tick.json` every 60 seconds until the sprint is complete.
-
-## Testing Locally with Gitea
-
-```bash
 # Start Gitea
 docker run -d --name gitea -p 3000:3000 gitea/gitea:1.22
 
-# Run the comparison test
-bash test/compare.sh
+# Run with noether backend
+CALORON_BACKEND=noether python3 examples/orchestrator.py \
+  "Build a Python module with is_palindrome function. Include tests."
 ```
+
+## Deployment
+
+For production, use Docker Compose or Kubernetes:
+
+```bash
+# Docker Compose (local/small team)
+cd deploy/docker
+docker compose up -d
+
+# Kubernetes (enterprise)
+cd deploy/k8s
+helm install caloron .
+```
+
+See [Deployment Guide](../../deploy/README.md) for details.
+
+## Next Steps
+
+- [Architecture](architecture.md) — how stages, compositions, and the shell fit together
+- [Stage Catalog](../reference/stage-catalog.md) — all 20 custom stages
+- [vs Original Caloron](../comparison.md) — side-by-side comparison
