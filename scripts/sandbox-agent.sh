@@ -40,15 +40,18 @@ BWRAP_ARGS=(
     # lib64 may not exist on all systems
     $([ -d /lib64 ] && echo "--ro-bind /lib64 /lib64")
 
-    # Claude Code needs its config (read-only)
+    # Claude Code config — read-write (needs session-env/, statsig/, etc.)
+    --bind "$HOME_DIR/.claude" "$HOME_DIR/.claude"
+    # Tools and binaries — read-only
     --ro-bind "$HOME_DIR/.local" "$HOME_DIR/.local"
     --ro-bind "$HOME_DIR/.config" "$HOME_DIR/.config"
-    --ro-bind "$HOME_DIR/.claude" "$HOME_DIR/.claude"
     $([ -d "$HOME_DIR/.claude.json" ] && echo "--ro-bind $HOME_DIR/.claude.json $HOME_DIR/.claude.json" || true)
     $([ -d "$HOME_DIR/snap" ] && echo "--ro-bind $HOME_DIR/snap $HOME_DIR/snap" || true)
     $([ -d "$HOME_DIR/.npm" ] && echo "--ro-bind $HOME_DIR/.npm $HOME_DIR/.npm" || true)
+    $([ -d "$HOME_DIR/.nvm" ] && echo "--ro-bind $HOME_DIR/.nvm $HOME_DIR/.nvm" || true)
+    $([ -d "$HOME_DIR/.cache" ] && echo "--bind $HOME_DIR/.cache $HOME_DIR/.cache" || true)
 
-    # Worktree (read-write) — the ONLY writable directory
+    # Worktree (read-write) — the primary writable directory
     --bind "$WORKTREE" "$WORKTREE"
 
     # Temp (read-write, needed by many tools)
@@ -64,7 +67,7 @@ BWRAP_ARGS=(
 
     # Environment
     --setenv HOME "$HOME_DIR"
-    --setenv PATH "$HOME_DIR/.local/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin"
+    --setenv PATH "$HOME_DIR/.nvm/versions/node/v24.9.0/bin:$HOME_DIR/.local/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/snap/bin"
     --setenv CALORON_SANDBOXED "1"
 
     # Working directory

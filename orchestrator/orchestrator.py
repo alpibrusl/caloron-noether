@@ -827,7 +827,8 @@ CALORON_FEEDBACK_END"""
                                   cwd=project, capture_output=True, text=True)
             changed = [f for f in diff.stdout.strip().split("\n")
                        if f and (f.startswith("src/") or f.startswith("tests/"))
-                       and f not in ("src/__init__.py", "tests/__init__.py")]
+                       and f not in ("src/__init__.py", "tests/__init__.py")
+                       and "__pycache__" not in f and not f.endswith(".pyc")]
             subprocess.run(["git", "checkout", "--", "."], cwd=project, capture_output=True)
 
             if changed and success:
@@ -841,7 +842,10 @@ CALORON_FEEDBACK_END"""
                 for filepath in changed:
                     full_path = os.path.join(project, filepath)
                     if os.path.exists(full_path):
-                        content = open(full_path).read()
+                        try:
+                            content = open(full_path).read()
+                        except (UnicodeDecodeError, ValueError):
+                            continue  # skip binary files
                         upload_file(branch, filepath, content, f"[{tid}] {filepath}")
                         print(f"  Uploaded: {filepath}")
 
@@ -919,7 +923,10 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
                     for filepath in fix_changed:
                         full_path = os.path.join(project, filepath)
                         if os.path.exists(full_path):
-                            content = open(full_path).read()
+                            try:
+                                content = open(full_path).read()
+                            except (UnicodeDecodeError, ValueError):
+                                continue
                             upload_file(branch, filepath, content, f"[{tid}] fix: {filepath}")
                     print(f"  Pushed fix ({len(fix_changed)} files)")
 
