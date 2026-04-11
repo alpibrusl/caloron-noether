@@ -31,6 +31,14 @@ from agentspec_bridge import (
     print_evolution_summary,
 )
 
+# Profile integration (requires agentspec with profile module)
+try:
+    from agentspec.profile.manager import ProfileManager
+    from agentspec.parser.manifest import AgentManifest as _AgentManifest
+    PROFILES_AVAILABLE = True
+except ImportError:
+    PROFILES_AVAILABLE = False
+
 # ── Config ──────────────────────────────────────────────────────────────────
 
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "c50bad400bd9b8cde3e930cca052eae6ded71f7b")
@@ -1028,6 +1036,49 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
             tasks, retro_summary, feedback_data,
             f"sprint-{sprint_number}", agents_dir)
         print_evolution_summary(agentspec_evolutions)
+    print()
+
+    # ── Step 9b: Agent Profiles (signed portfolio) ──────────────────
+    if PROFILES_AVAILABLE and AGENTSPEC_AVAILABLE:
+        print("--- Agent Profiles ---")
+        profiles_dir = os.path.join(WORK, "profiles")
+        profile_mgr = ProfileManager(profiles_dir)
+
+        for f in feedback_data:
+            tid = f["task_id"]
+            # Load or create profile from the task's agentspec manifest
+            task_data = next((t for t in tasks if t.get("id") == tid), {})
+            spec = task_data.get("agentspec", {})
+
+            from agentspec.parser.manifest import AgentManifest
+            try:
+                manifest = AgentManifest(
+                    name=f"caloron-agent-{tid}",
+                    version=f"1.0.0",
+                    description=task_data.get("title", ""),
+                )
+                profile = profile_mgr.load_or_create(manifest)
+
+                result = profile_mgr.process_retro(profile, f,
+                    sprint_id=f"sprint-{sprint_number}",
+                    project=goal[:50] if goal else "")
+
+                print(f"  {tid}: {result['memories_added']} memories, "
+                      f"{result['skills_added']} skills, "
+                      f"{result['memories_signed']} signed")
+            except Exception as e:
+                print(f"  {tid}: profile error — {e}")
+
+        # Print profile summaries
+        print()
+        for f in feedback_data:
+            tid = f["task_id"]
+            profile = profile_mgr.load_profile(f"caloron-agent-{tid}")
+            if profile:
+                profile_mgr.print_profile_summary(profile)
+                print()
+    elif PROFILES_AVAILABLE:
+        print("--- Agent Profiles: agentspec not available ---")
     print()
 
     # Show agent history
