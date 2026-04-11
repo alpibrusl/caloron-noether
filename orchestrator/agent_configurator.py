@@ -150,6 +150,30 @@ def _cursor_mcp_add_http(name: str, url: str, worktree: str):
     _run_quiet(cmd, cwd=worktree)
 
 
+# ── Gemini CLI: gemini mcp add ─────────────────────────────────────────────
+
+def _gemini_mcp_add(name: str, command: str, args: list[str], worktree: str,
+                    env: dict = None, scope: str = "project"):
+    """Register an MCP server via `gemini mcp add`."""
+    cmd = ["gemini", "mcp", "add", f"--scope={scope}"]
+    if env:
+        for k, v in env.items():
+            cmd.extend(["-e", f"{k}={v}"])
+    cmd.extend([name, command] + args)
+    _run_quiet(cmd, cwd=worktree)
+
+
+def _gemini_mcp_add_http(name: str, url: str, worktree: str,
+                         headers: dict = None, scope: str = "project"):
+    """Register an HTTP MCP server via `gemini mcp add --transport http`."""
+    cmd = ["gemini", "mcp", "add", f"--scope={scope}", "--transport", "http"]
+    if headers:
+        for k, v in headers.items():
+            cmd.extend(["-H", f"{k}: {v}"])
+    cmd.extend([name, url])
+    _run_quiet(cmd, cwd=worktree)
+
+
 # ── Framework-agnostic MCP registration ────────────────────────────────────
 
 def register_mcp(framework: str, name: str, url: str, worktree: str,
@@ -166,7 +190,9 @@ def register_mcp(framework: str, name: str, url: str, worktree: str,
             _codex_mcp_add_http(name, url, worktree)
         elif framework == "cursor-cli":
             _cursor_mcp_add_http(name, url, worktree)
-        # gemini-cli, open-code, aider: config file only (no CLI for MCP)
+        elif framework == "gemini-cli":
+            _gemini_mcp_add_http(name, url, worktree)
+        # open-code, aider: config file only (no native MCP CLI)
     else:
         # stdio MCP server (npx, docker, etc.)
         if url.startswith("postgresql://") or url.startswith("postgres://"):
@@ -185,6 +211,8 @@ def register_mcp(framework: str, name: str, url: str, worktree: str,
             _codex_mcp_add(name, command, args, worktree, env=env)
         elif framework == "cursor-cli":
             _cursor_mcp_add(name, command, args, worktree, env=env)
+        elif framework == "gemini-cli":
+            _gemini_mcp_add(name, command, args, worktree, env=env)
 
 
 def configure_agent(
@@ -373,6 +401,10 @@ def configure_gemini(
                     "command": "npx",
                     "args": ["-y", "@modelcontextprotocol/server-postgres", url],
                 }
+            # Register via native CLI: gemini mcp add
+            register_mcp("gemini-cli", name, url, worktree)
+
+        # Write config file as fallback
         Path(os.path.join(gemini_dir, "settings.json")).write_text(
             json.dumps(mcp_config, indent=2))
 
