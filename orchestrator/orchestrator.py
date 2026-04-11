@@ -27,6 +27,8 @@ from agentspec_bridge import (
     enrich_tasks_with_agentspec,
     configure_agent_from_spec,
     print_agentspec_assignments,
+    auto_evolve_with_agentspec,
+    print_evolution_summary,
 )
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -1005,10 +1007,20 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
             "notes": f.get("notes", ""),
         })
 
-    # Auto-evolve
+    # Auto-evolve (legacy agent_versioning)
     changes = auto_evolve_agents(agent_store, retro_summary, f"sprint-{sprint_number}")
     if not changes:
-        print("  No evolution needed — agents performing well")
+        print("  No evolution needed (legacy) — agents performing well")
+
+    # AgentSpec-based evolution (produces versioned .agent files)
+    if AGENTSPEC_AVAILABLE:
+        print()
+        print("  AgentSpec evolution:")
+        agents_dir = os.path.join(WORK, "agents")
+        agentspec_evolutions = auto_evolve_with_agentspec(
+            tasks, retro_summary, feedback_data,
+            f"sprint-{sprint_number}", agents_dir)
+        print_evolution_summary(agentspec_evolutions)
     print()
 
     # Show agent history

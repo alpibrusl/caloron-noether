@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -431,6 +432,310 @@ def _save_manifest_yaml(manifest: AgentManifest, path: Path) -> None:
     data.pop("soul", None)
     data.pop("rules", None)
     path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+
+# ── Agent Evolution via AgentSpec Inheritance ─────────────────────────────────
+#
+# After a retro, the evolution engine produces a new .agent file that
+# *extends* the previous version. This gives:
+#   - Full history: each version is a content-addressed .agent file
+#   - Inheritance: child agent inherits parent's config, overrides specific fields
+#   - Trust invariant: evolved agent can never escalate permissions
+#   - Shareable patterns: evolution rules can be extracted as reusable base agents
+#
+# Sprint flow:
+#   Sprint 1: caloron-agent-impl@1.0.0 (from PO)
+#       ↓ retro: low clarity, high failure
+#   Sprint 2: caloron-agent-impl@1.1.0 (extends @1.0.0)
+#       - behavior: append (add self-review trait)
+#       - model: override (stronger model)
+#       ↓ retro: clean sprint
+#   Sprint 3: caloron-agent-impl@1.1.0 (no change needed)
+
+
+@dataclass
+class EvolutionChange:
+    """A single evolution step with AgentSpec mapping."""
+    field: str           # retro field: "model", "traits", "instructions", etc.
+    old_value: str
+    new_value: str
+    reason: str
+    agentspec_op: str    # what this maps to in .agent: "model.capability", "behavior.traits", etc.
+
+
+def evolve_agent_manifest(
+    base_manifest: AgentManifest,
+    retro_data: dict[str, Any],
+    performance: dict[str, Any],
+    sprint_id: str,
+    agents_dir: str | None = None,
+) -> tuple[AgentManifest | None, list[EvolutionChange]]:
+    """Produce an evolved .agent manifest based on retro findings.
+
+    Applies evolution rules (same logic as agent_versioning.should_evolve)
+    but outputs an AgentSpec manifest with inheritance instead of flat patches.
+
+    Returns (evolved_manifest, changes). Returns (None, []) if no evolution needed.
+    """
+    if not AGENTSPEC_AVAILABLE:
+        return None, []
+
+    changes: list[EvolutionChange] = []
+
+    clarity = retro_data.get("avg_clarity", 10)
+    failure_rate = retro_data.get("failure_rate", 0)
+    interventions = retro_data.get("supervisor_events", 0)
+    review_cycles = retro_data.get("avg_review_cycles", 0)
+    blockers = retro_data.get("blockers", [])
+
+    # Collect needed modifications
+    new_capability = base_manifest.model.capability
+    new_traits = list(base_manifest.behavior.traits)
+    new_temperature = base_manifest.behavior.temperature
+    new_max_steps = base_manifest.behavior.max_steps
+    new_preferred = list(base_manifest.model.preferred)
+    extra_rules: list[str] = []
+
+    # Rule 1: High failure rate → stronger model
+    if failure_rate > 0.3 and base_manifest.model.capability != "reasoning-high":
+        old_cap = base_manifest.model.capability
+        new_capability = "reasoning-high"
+        new_preferred = _framework_preferred_models("claude-code")  # reset to best
+        changes.append(EvolutionChange(
+            field="model",
+            old_value=old_cap,
+            new_value="reasoning-high",
+            reason=f"Failure rate {failure_rate:.0%} exceeds 30% threshold",
+            agentspec_op="model.capability",
+        ))
+
+    # Rule 2: Low clarity → add ambiguity-handling trait
+    if clarity < 5 and "handle-ambiguity" not in new_traits:
+        new_traits.append("handle-ambiguity")
+        extra_rules.append(
+            "If the task description is unclear, list your assumptions before starting work."
+        )
+        changes.append(EvolutionChange(
+            field="traits",
+            old_value="",
+            new_value="handle-ambiguity",
+            reason=f"Average clarity {clarity}/10 — agent needs ambiguity handling",
+            agentspec_op="behavior.traits",
+        ))
+
+    # Rule 3: High review cycles → add self-review trait
+    if review_cycles > 2 and "self-review" not in new_traits:
+        new_traits.append("self-review")
+        extra_rules.append(
+            "Before submitting, review your code for: missing tests, missing validation, missing type hints."
+        )
+        changes.append(EvolutionChange(
+            field="traits",
+            old_value="",
+            new_value="self-review",
+            reason=f"Average {review_cycles:.1f} review cycles — too many rejections",
+            agentspec_op="behavior.traits",
+        ))
+
+    # Rule 4: Many supervisor interventions → lower temperature, increase steps
+    if interventions > 1:
+        if new_temperature > 0.1:
+            old_temp = new_temperature
+            new_temperature = max(0.1, new_temperature - 0.1)
+            changes.append(EvolutionChange(
+                field="temperature",
+                old_value=str(old_temp),
+                new_value=str(new_temperature),
+                reason=f"{interventions} supervisor interventions — tighter focus needed",
+                agentspec_op="behavior.temperature",
+            ))
+        if new_max_steps < 80:
+            old_steps = new_max_steps
+            new_max_steps = min(80, new_max_steps + 10)
+            changes.append(EvolutionChange(
+                field="max_steps",
+                old_value=str(old_steps),
+                new_value=str(new_max_steps),
+                reason=f"{interventions} interventions — more steps before timeout",
+                agentspec_op="behavior.max_steps",
+            ))
+
+    # Rule 5: Tool blockers → add missing skills
+    new_skills = list(base_manifest.skills)
+    for blocker in blockers:
+        bl = blocker.lower()
+        if "tool" in bl and "unavailable" in bl:
+            if "browser" in bl and "browser" not in new_skills:
+                new_skills.append("browser")
+                changes.append(EvolutionChange(
+                    field="skills",
+                    old_value="",
+                    new_value="browser",
+                    reason=f"Blocker: {blocker}",
+                    agentspec_op="skills",
+                ))
+            if "data" in bl and "data-analysis" not in new_skills:
+                new_skills.append("data-analysis")
+                changes.append(EvolutionChange(
+                    field="skills",
+                    old_value="",
+                    new_value="data-analysis",
+                    reason=f"Blocker: {blocker}",
+                    agentspec_op="skills",
+                ))
+
+    # No changes needed
+    if not changes:
+        return None, []
+
+    # Build evolved manifest — inherits from base
+    version_parts = base_manifest.version.split(".")
+    new_minor = int(version_parts[1]) + 1 if len(version_parts) > 1 else 1
+    new_version = f"{version_parts[0]}.{new_minor}.0"
+
+    # Build RULES.md content from accumulated rules
+    rules_content = base_manifest.rules or ""
+    if extra_rules:
+        rules_content += "\n\n## Evolution Rules (from retro)\n"
+        for rule in extra_rules:
+            rules_content += f"- {rule}\n"
+
+    evolved = AgentManifest(
+        apiVersion="agent/v1",
+        name=base_manifest.name,
+        version=new_version,
+        description=f"{base_manifest.description} (evolved sprint {sprint_id})",
+        tags=base_manifest.tags,
+        model=ModelSpec(
+            capability=new_capability,
+            preferred=new_preferred,
+            fallback=base_manifest.model.fallback,
+            context=base_manifest.model.context,
+        ),
+        skills=new_skills,
+        tools=base_manifest.tools,
+        behavior=BehaviorSpec(
+            persona=base_manifest.behavior.persona,
+            traits=new_traits,
+            temperature=new_temperature,
+            max_steps=new_max_steps,
+            on_error=base_manifest.behavior.on_error,
+            system_override=base_manifest.behavior.system_override,
+        ),
+        trust=base_manifest.trust,  # never escalate
+        observability=base_manifest.observability,
+        extensions=base_manifest.extensions,
+        rules=rules_content if rules_content.strip() else None,
+    )
+
+    # Save evolved .agent file
+    if agents_dir:
+        Path(agents_dir).mkdir(parents=True, exist_ok=True)
+        # Save as versioned file
+        safe_name = base_manifest.name.replace("/", "_")
+        evolved_file = Path(agents_dir) / f"{safe_name}@{new_version}.agent"
+        _save_manifest_yaml(evolved, evolved_file)
+
+        # Also save as "current" (latest) for next sprint to pick up
+        current_file = Path(agents_dir) / f"{safe_name}.agent"
+        _save_manifest_yaml(evolved, current_file)
+
+    return evolved, changes
+
+
+def load_previous_manifest(
+    agent_id: str, agents_dir: str
+) -> AgentManifest | None:
+    """Load the most recent .agent file for an agent from the agents directory."""
+    if not AGENTSPEC_AVAILABLE:
+        return None
+
+    safe_name = f"caloron-agent-{agent_id}"
+    current_file = Path(agents_dir) / f"{safe_name}.agent"
+    if current_file.exists():
+        return load_agent(current_file)
+    return None
+
+
+def auto_evolve_with_agentspec(
+    tasks: list[dict[str, Any]],
+    retro_data: dict[str, Any],
+    feedback_data: list[dict[str, Any]],
+    sprint_id: str,
+    agents_dir: str,
+) -> list[dict[str, Any]]:
+    """Run agentspec-based evolution for all agents that ran in this sprint.
+
+    For each agent:
+    1. Load its .agent manifest from the agents directory
+    2. Check retro data for evolution triggers
+    3. If needed, produce an evolved .agent that inherits from the original
+    4. Save the evolved .agent for the next sprint
+
+    Returns a list of evolution summaries.
+    """
+    if not AGENTSPEC_AVAILABLE:
+        return []
+
+    evolutions: list[dict[str, Any]] = []
+
+    for task in tasks:
+        tid = task.get("id", "")
+        manifest = load_previous_manifest(tid, agents_dir)
+        if not manifest:
+            continue
+
+        # Build per-agent retro data from feedback
+        agent_feedback = next((f for f in feedback_data if f.get("task_id") == tid), {})
+        per_agent_retro = {
+            "avg_clarity": agent_feedback.get("clarity", retro_data.get("avg_clarity", 10)),
+            "failure_rate": 0.0 if agent_feedback.get("assessment") == "completed" else 1.0,
+            "supervisor_events": retro_data.get("supervisor_events", 0),
+            "avg_review_cycles": len(agent_feedback.get("blockers", [])),
+            "blockers": agent_feedback.get("blockers", []),
+        }
+        performance = agent_feedback
+
+        evolved, changes = evolve_agent_manifest(
+            manifest, per_agent_retro, performance, sprint_id, agents_dir
+        )
+
+        if evolved and changes:
+            h = agent_hash(evolved)
+            evolutions.append({
+                "agent_id": tid,
+                "old_version": manifest.version,
+                "new_version": evolved.version,
+                "hash": h,
+                "changes": [
+                    {
+                        "field": c.field,
+                        "old": c.old_value,
+                        "new": c.new_value,
+                        "reason": c.reason,
+                        "agentspec_op": c.agentspec_op,
+                    }
+                    for c in changes
+                ],
+            })
+            print(f"  Agent {tid}: v{manifest.version} -> v{evolved.version} ({h})")
+            for c in changes:
+                print(f"    [{c.agentspec_op}] {c.old_value or '(none)'} -> {c.new_value}")
+                print(f"      reason: {c.reason}")
+
+    return evolutions
+
+
+def print_evolution_summary(evolutions: list[dict[str, Any]]) -> None:
+    """Print a summary of agent evolution changes."""
+    if not evolutions:
+        print("  No evolution needed — agents performing well")
+        return
+
+    print(f"  {len(evolutions)} agent(s) evolved:")
+    for evo in evolutions:
+        print(f"    {evo['agent_id']}: v{evo['old_version']} -> v{evo['new_version']} ({evo['hash']})")
+        print(f"      {len(evo['changes'])} change(s)")
 
 
 # ── Print helpers ─────────────────────────────────────────────────────────────
