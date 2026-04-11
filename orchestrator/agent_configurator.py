@@ -152,6 +152,17 @@ def _cursor_mcp_add_http(name: str, url: str, worktree: str):
 
 # ── Gemini CLI: gemini mcp add ─────────────────────────────────────────────
 
+# ── opencode: opencode mcp add ──────────────────────────────────────────
+
+def _opencode_mcp_add(name: str, command: str, args: list[str], worktree: str,
+                      env: dict = None):
+    """Register an MCP server via `opencode mcp add`."""
+    # opencode mcp add is interactive — use config file approach
+    # but try CLI first in case future versions support non-interactive
+    cmd = ["opencode", "mcp", "add"]
+    _run_quiet(cmd, cwd=worktree, timeout=5)
+
+
 def _gemini_mcp_add(name: str, command: str, args: list[str], worktree: str,
                     env: dict = None, scope: str = "project"):
     """Register an MCP server via `gemini mcp add`."""

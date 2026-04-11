@@ -75,9 +75,9 @@ FRAMEWORKS = {
         "api_key_flag": None,
     },
     "open-code": {
-        "cmd": "open-code",
-        "args": ["--non-interactive"],
-        "prompt_flag": "-p",
+        "cmd": "opencode",
+        "args": ["run"],
+        "prompt_flag": "",  # opencode run takes message as positional args
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": None,
     },
