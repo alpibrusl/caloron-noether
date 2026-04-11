@@ -76,37 +76,115 @@ def install_dependencies(worktree: str, deps: dict):
                 pass
 
 
+def _run_quiet(cmd: list[str], cwd: str = None, timeout: int = 15):
+    """Run a command quietly, swallowing errors."""
+    import subprocess
+    try:
+        subprocess.run(cmd, cwd=cwd, capture_output=True, timeout=timeout)
+    except Exception:
+        pass
+
+
+# ── Claude Code: claude mcp add ────────────────────────────────────────────
+
 def _claude_mcp_add(name: str, command: str, args: list[str], worktree: str,
                     env: dict = None, scope: str = "project"):
-    """Register an MCP server via `claude mcp add` CLI.
-
-    Scope: 'project' (written to .mcp.json in worktree) or 'user' (global).
-    """
-    import subprocess
+    """Register an MCP server via `claude mcp add`."""
     cmd = ["claude", "mcp", "add", f"--scope={scope}"]
     if env:
         for k, v in env.items():
             cmd.extend(["-e", f"{k}={v}"])
     cmd.extend([name, "--", command] + args)
-    try:
-        subprocess.run(cmd, cwd=worktree, capture_output=True, timeout=15)
-    except Exception:
-        pass  # Fallback: .mcp.json file will be used instead
+    _run_quiet(cmd, cwd=worktree)
 
 
 def _claude_mcp_add_http(name: str, url: str, worktree: str,
                          headers: dict = None, scope: str = "project"):
     """Register an HTTP MCP server via `claude mcp add --transport http`."""
-    import subprocess
     cmd = ["claude", "mcp", "add", f"--scope={scope}", "--transport", "http"]
     if headers:
         for k, v in headers.items():
             cmd.extend(["--header", f"{k}: {v}"])
     cmd.extend([name, url])
-    try:
-        subprocess.run(cmd, cwd=worktree, capture_output=True, timeout=15)
-    except Exception:
-        pass
+    _run_quiet(cmd, cwd=worktree)
+
+
+# ── Codex CLI: codex mcp add ───────────────────────────────────────────────
+
+def _codex_mcp_add(name: str, command: str, args: list[str], worktree: str,
+                   env: dict = None):
+    """Register an MCP server via `codex mcp add name -- cmd args`."""
+    cmd = ["codex", "mcp", "add"]
+    if env:
+        for k, v in env.items():
+            cmd.extend(["--env", f"{k}={v}"])
+    cmd.extend([name, "--", command] + args)
+    _run_quiet(cmd, cwd=worktree)
+
+
+def _codex_mcp_add_http(name: str, url: str, worktree: str,
+                        bearer_env: str = None):
+    """Register an HTTP MCP server via `codex mcp add --url`."""
+    cmd = ["codex", "mcp", "add", name, "--url", url]
+    if bearer_env:
+        cmd.extend(["--bearer-token-env-var", bearer_env])
+    _run_quiet(cmd, cwd=worktree)
+
+
+# ── Cursor: cursor --add-mcp ───────────────────────────────────────────────
+
+def _cursor_mcp_add(name: str, command: str, args: list[str], worktree: str,
+                    env: dict = None):
+    """Register an MCP server via `cursor --add-mcp '{json}'`."""
+    mcp_def = {"name": name, "command": command, "args": args}
+    if env:
+        mcp_def["env"] = env
+    cmd = ["cursor", "--add-mcp", json.dumps(mcp_def), "--mcp-workspace", worktree]
+    _run_quiet(cmd, cwd=worktree)
+
+
+def _cursor_mcp_add_http(name: str, url: str, worktree: str):
+    """Register an HTTP MCP server via Cursor."""
+    mcp_def = {"name": name, "url": url}
+    cmd = ["cursor", "--add-mcp", json.dumps(mcp_def), "--mcp-workspace", worktree]
+    _run_quiet(cmd, cwd=worktree)
+
+
+# ── Framework-agnostic MCP registration ────────────────────────────────────
+
+def register_mcp(framework: str, name: str, url: str, worktree: str,
+                 env: dict = None):
+    """Register an MCP server using the framework's native CLI.
+
+    Falls back to writing config files if CLI is not available.
+    """
+    if url.startswith("http://") or url.startswith("https://"):
+        # HTTP MCP server
+        if framework == "claude-code":
+            _claude_mcp_add_http(name, url, worktree)
+        elif framework == "codex-cli":
+            _codex_mcp_add_http(name, url, worktree)
+        elif framework == "cursor-cli":
+            _cursor_mcp_add_http(name, url, worktree)
+        # gemini-cli, open-code, aider: config file only (no CLI for MCP)
+    else:
+        # stdio MCP server (npx, docker, etc.)
+        if url.startswith("postgresql://") or url.startswith("postgres://"):
+            command = "npx"
+            args = ["-y", "@modelcontextprotocol/server-postgres", url]
+        elif url.startswith("slack://"):
+            command = "npx"
+            args = ["-y", "@anthropic-ai/mcp-slack"]
+        else:
+            command = "npx"
+            args = ["-y", "mcp-remote", url]
+
+        if framework == "claude-code":
+            _claude_mcp_add(name, command, args, worktree, env=env)
+        elif framework == "codex-cli":
+            _codex_mcp_add(name, command, args, worktree, env=env)
+        elif framework == "cursor-cli":
+            _cursor_mcp_add(name, command, args, worktree, env=env)
 
 
 def configure_agent(
@@ -167,35 +245,30 @@ def configure_claude_code(
         for mcp in mcp_urls:
             name = mcp["name"]
             url = mcp["url"]
+            env = {}
 
-            # Build the MCP server config
             if url.startswith("postgresql://") or url.startswith("postgres://"):
-                server_cmd = "npx"
-                server_args = ["-y", "@modelcontextprotocol/server-postgres", url]
-                mcp_config["mcpServers"][name] = {"command": server_cmd, "args": server_args}
-                # Try registering via CLI
-                _claude_mcp_add(name, server_cmd, server_args, worktree)
-
+                mcp_config["mcpServers"][name] = {
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-postgres", url],
+                }
             elif url.startswith("http://") or url.startswith("https://"):
-                # HTTP MCP servers — use --transport http
                 mcp_config["mcpServers"][name] = {
                     "command": "npx",
                     "args": ["-y", "mcp-remote", url],
                 }
-                _claude_mcp_add_http(name, url, worktree)
-
             elif url.startswith("slack://"):
-                server_cmd = "npx"
-                server_args = ["-y", "@anthropic-ai/mcp-slack"]
+                env = {"SLACK_TOKEN": os.environ.get("SLACK_TOKEN", "")}
                 mcp_config["mcpServers"][name] = {
-                    "command": server_cmd,
-                    "args": server_args,
+                    "command": "npx",
+                    "args": ["-y", "@anthropic-ai/mcp-slack"],
                     "env": {"SLACK_TOKEN": "${SLACK_TOKEN}"},
                 }
-                _claude_mcp_add(name, server_cmd, server_args, worktree,
-                               env={"SLACK_TOKEN": os.environ.get("SLACK_TOKEN", "")})
 
-        # Write .mcp.json as fallback (always, in case CLI registration failed)
+            # Register via native CLI (claude mcp add)
+            register_mcp("claude-code", name, url, worktree, env=env or None)
+
+        # Write .mcp.json as fallback
         config_path = os.path.join(worktree, ".mcp.json")
         Path(config_path).write_text(json.dumps(mcp_config, indent=2))
         extra_flags.extend(["--mcp-config", config_path])
@@ -245,9 +318,11 @@ def configure_cursor(
     if mcp_urls:
         mcp_config = {"mcpServers": {}}
         for mcp in mcp_urls:
-            mcp_config["mcpServers"][mcp["name"]] = {
-                "url": mcp["url"],
-            }
+            mcp_config["mcpServers"][mcp["name"]] = {"url": mcp["url"]}
+            # Register via native CLI: cursor --add-mcp
+            register_mcp("cursor-cli", mcp["name"], mcp["url"], worktree)
+
+        # Write config file as fallback
         Path(os.path.join(worktree, ".cursor", "mcp.json")).parent.mkdir(parents=True, exist_ok=True)
         Path(os.path.join(worktree, ".cursor", "mcp.json")).write_text(
             json.dumps(mcp_config, indent=2))
@@ -345,6 +420,10 @@ def configure_codex(
                     "command": "npx",
                     "args": ["-y", "@modelcontextprotocol/server-postgres", url],
                 }
+            # Register via native CLI: codex mcp add
+            register_mcp("codex-cli", name, url, worktree)
+
+        # Write config file as fallback
         Path(os.path.join(worktree, "codex.json")).write_text(
             json.dumps(mcp_config, indent=2))
 
