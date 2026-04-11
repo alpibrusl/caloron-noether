@@ -22,6 +22,12 @@ from hr_agent import run_hr_agent, print_assignments
 from agent_configurator import configure_agent, print_config_summary
 from template_store import scaffold_project
 from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
+from agentspec_bridge import (
+    AGENTSPEC_AVAILABLE,
+    enrich_tasks_with_agentspec,
+    configure_agent_from_spec,
+    print_agentspec_assignments,
+)
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
@@ -628,6 +634,7 @@ def main():
     print(f"  Goal: {goal}")
     if BACKEND == "noether":
         print(f"  Stages: {NOETHER_STAGES_DIR}")
+    print(f"  AgentSpec: {'enabled' if AGENTSPEC_AVAILABLE else 'disabled (pip install agentspec)'}")
     if po_context:
         print(f"  (with learnings from {len(learnings['sprints'])} previous sprint(s))")
     # Show agent versions if any exist
@@ -671,12 +678,21 @@ Keep to 2-3 tasks. Tests depend on implementation."""
         deps = ", ".join(t.get("depends_on", [])) or "none"
         print(f"  {t['id']}: {t['title']} (deps: {deps})")
 
-    # ── Step 1.5: HR Agent assigns skills ───────────────────────────────
+    # ── Step 1.5: AgentSpec resolve (or HR Agent fallback) ───────────────
     print()
-    print("--- HR Agent: Assigning skills ---")
     skill_store = SkillStore(os.path.join(WORK, "skill_store.json"))
-    tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
-    print_assignments(tasks)
+
+    if AGENTSPEC_AVAILABLE:
+        print("--- AgentSpec: Resolving agents ---")
+        agents_dir = os.path.join(WORK, "agents")
+        tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
+        tasks = enrich_tasks_with_agentspec(
+            tasks, preferred_framework="claude-code", agents_dir=agents_dir)
+        print_agentspec_assignments(tasks)
+    else:
+        print("--- HR Agent: Assigning skills (agentspec not available) ---")
+        tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
+        print_assignments(tasks)
 
     # Register agents in version store (or load existing versions)
     print()
@@ -753,9 +769,16 @@ Keep to 2-3 tasks. Tests depend on implementation."""
                 print(f"  Scaffold: {scaffold['template_name']} ({len(scaffold['files'])} files)")
 
             # Configure the agent's worktree with skill-specific files
-            config_result = configure_agent(project, task, framework)
-            extra_cli_flags = config_result.get("extra_flags", [])
-            print_config_summary(project, framework)
+            if task.get("agentspec") and "error" not in task["agentspec"]:
+                config_result = configure_agent_from_spec(project, task)
+                extra_cli_flags = config_result.get("extra_flags", [])
+                files = config_result.get("files_written", [])
+                if files:
+                    print(f"  AgentSpec config: {', '.join(files)}")
+            else:
+                config_result = configure_agent(project, task, framework)
+                extra_cli_flags = config_result.get("extra_flags", [])
+                print_config_summary(project, framework)
 
             # Agent writes code (with supervisor timeout)
             full_prompt = f"""{prompt}
