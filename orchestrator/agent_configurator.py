@@ -76,6 +76,39 @@ def install_dependencies(worktree: str, deps: dict):
                 pass
 
 
+def _claude_mcp_add(name: str, command: str, args: list[str], worktree: str,
+                    env: dict = None, scope: str = "project"):
+    """Register an MCP server via `claude mcp add` CLI.
+
+    Scope: 'project' (written to .mcp.json in worktree) or 'user' (global).
+    """
+    import subprocess
+    cmd = ["claude", "mcp", "add", f"--scope={scope}"]
+    if env:
+        for k, v in env.items():
+            cmd.extend(["-e", f"{k}={v}"])
+    cmd.extend([name, "--", command] + args)
+    try:
+        subprocess.run(cmd, cwd=worktree, capture_output=True, timeout=15)
+    except Exception:
+        pass  # Fallback: .mcp.json file will be used instead
+
+
+def _claude_mcp_add_http(name: str, url: str, worktree: str,
+                         headers: dict = None, scope: str = "project"):
+    """Register an HTTP MCP server via `claude mcp add --transport http`."""
+    import subprocess
+    cmd = ["claude", "mcp", "add", f"--scope={scope}", "--transport", "http"]
+    if headers:
+        for k, v in headers.items():
+            cmd.extend(["--header", f"{k}: {v}"])
+    cmd.extend([name, url])
+    try:
+        subprocess.run(cmd, cwd=worktree, capture_output=True, timeout=15)
+    except Exception:
+        pass
+
+
 def configure_agent(
     worktree: str,
     task: dict,
@@ -117,33 +150,52 @@ def configure_claude_code(
     skills: list[str],
     mcp_urls: list[dict],
 ) -> list[str]:
-    """Configure Claude Code with MCP servers and CLAUDE.md."""
+    """Configure Claude Code with MCP servers, plugins, and CLAUDE.md.
+
+    Two approaches for MCP setup:
+    1. `claude mcp add` — registers MCPs via CLI (persistent, preferred)
+    2. `.mcp.json` file — loaded via --mcp-config flag (fallback)
+
+    Both are generated so agents work whether claude CLI is available or not.
+    """
+    import subprocess
     extra_flags = []
 
-    # ── MCP config ──────────────────────────────────────────────────────
     if mcp_urls:
         mcp_config = {"mcpServers": {}}
+
         for mcp in mcp_urls:
             name = mcp["name"]
             url = mcp["url"]
-            # Different MCP server types
+
+            # Build the MCP server config
             if url.startswith("postgresql://") or url.startswith("postgres://"):
-                mcp_config["mcpServers"][name] = {
-                    "command": "npx",
-                    "args": ["-y", "@modelcontextprotocol/server-postgres", url],
-                }
+                server_cmd = "npx"
+                server_args = ["-y", "@modelcontextprotocol/server-postgres", url]
+                mcp_config["mcpServers"][name] = {"command": server_cmd, "args": server_args}
+                # Try registering via CLI
+                _claude_mcp_add(name, server_cmd, server_args, worktree)
+
             elif url.startswith("http://") or url.startswith("https://"):
+                # HTTP MCP servers — use --transport http
                 mcp_config["mcpServers"][name] = {
                     "command": "npx",
                     "args": ["-y", "mcp-remote", url],
                 }
+                _claude_mcp_add_http(name, url, worktree)
+
             elif url.startswith("slack://"):
+                server_cmd = "npx"
+                server_args = ["-y", "@anthropic-ai/mcp-slack"]
                 mcp_config["mcpServers"][name] = {
-                    "command": "npx",
-                    "args": ["-y", "@anthropic-ai/mcp-slack"],
+                    "command": server_cmd,
+                    "args": server_args,
                     "env": {"SLACK_TOKEN": "${SLACK_TOKEN}"},
                 }
+                _claude_mcp_add(name, server_cmd, server_args, worktree,
+                               env={"SLACK_TOKEN": os.environ.get("SLACK_TOKEN", "")})
 
+        # Write .mcp.json as fallback (always, in case CLI registration failed)
         config_path = os.path.join(worktree, ".mcp.json")
         Path(config_path).write_text(json.dumps(mcp_config, indent=2))
         extra_flags.extend(["--mcp-config", config_path])
