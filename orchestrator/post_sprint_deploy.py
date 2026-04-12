@@ -22,7 +22,7 @@ from pathlib import Path
 def detect_project_type(project_dir: str) -> dict:
     """Detect what kind of project was built."""
     files = set()
-    for root, dirs, fnames in os.walk(project_dir):
+    for root, _dirs, fnames in os.walk(project_dir):
         for f in fnames:
             rel = os.path.relpath(os.path.join(root, f), project_dir)
             if not rel.startswith(".git/"):

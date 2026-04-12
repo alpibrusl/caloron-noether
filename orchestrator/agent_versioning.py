@@ -5,13 +5,12 @@ Each improvement from a retro creates a new agent version.
 Tracks: what changed, why, when, and the full agent spec at each version.
 Supports rollback if a change degrades performance.
 """
+import copy
 import json
 import os
-import copy
-from datetime import datetime, timezone
-from pathlib import Path
 from dataclasses import dataclass, field
-
+from datetime import UTC, datetime
+from pathlib import Path
 
 AGENTS_FILE = os.path.join(
     os.environ.get("WORK", "/tmp/caloron-full-loop"),
@@ -69,7 +68,7 @@ class AgentVersionStore:
             version = "1.0"
             self.agents[agent_id] = [{
                 "version": version,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "sprint_id": sprint_id,
                 "personality": spec.get("personality", "developer"),
                 "model": spec.get("model", "balanced"),
@@ -144,7 +143,7 @@ class AgentVersionStore:
             })
 
         current["version"] = new_version
-        current["created_at"] = datetime.now(timezone.utc).isoformat()
+        current["created_at"] = datetime.now(UTC).isoformat()
         current["sprint_id"] = sprint_id
         current["changes"] = change_records
         current["performance"] = {}  # reset until measured
@@ -164,7 +163,7 @@ class AgentVersionStore:
         """Rollback to the previous version. Returns the version rolled back to."""
         if agent_id not in self.agents or len(self.agents[agent_id]) < 2:
             return None
-        removed = self.agents[agent_id].pop()
+        self.agents[agent_id].pop()
         self._save()
         return self.agents[agent_id][-1]["version"]
 
@@ -178,7 +177,7 @@ class AgentVersionStore:
         if not current:
             return suggestions
 
-        perf = current.get("performance", {})
+        current.get("performance", {})
         blockers = retro_data.get("blockers", [])
         clarity = retro_data.get("avg_clarity", 10)
         failure_rate = retro_data.get("failure_rate", 0)

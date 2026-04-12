@@ -11,10 +11,8 @@ Each template generates a working project skeleton with:
 
 Templates are matched to tasks by the HR Agent based on detected skills.
 """
-import json
 import os
 from pathlib import Path
-
 
 TEMPLATES = {
     # ── Python / FastAPI ──────────────────────────────────────────────
@@ -623,7 +621,8 @@ def generate_template_with_llm(
 
     Returns parsed template dict, or None if generation fails.
     """
-    import subprocess, re
+    import re
+    import subprocess
 
     prompt = f"""Generate a project template YAML for: {stack_description}
 
@@ -719,7 +718,7 @@ def scaffold_project(worktree: str, skills: list[str], task_text: str,
 
     if best_score < 2 and allow_llm_generation:
         # No good match — generate a template
-        print(f"  No template match — generating with LLM...")
+        print("  No template match — generating with LLM...")
         generated = generate_template_with_llm(task_text, sandbox, worktree)
         if generated:
             saved_path = save_generated_template(generated)

@@ -13,28 +13,28 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from agent_versioning import AgentVersionStore, auto_evolve_agents, print_agent_history
-from skill_store import SkillStore
-from hr_agent import run_hr_agent, print_assignments
 from agent_configurator import configure_agent, print_config_summary
-from template_store import scaffold_project
-from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
+from agent_versioning import AgentVersionStore, auto_evolve_agents, print_agent_history
 from agentspec_bridge import (
     AGENTSPEC_AVAILABLE,
-    enrich_tasks_with_agentspec,
-    configure_agent_from_spec,
-    print_agentspec_assignments,
     auto_evolve_with_agentspec,
+    configure_agent_from_spec,
+    enrich_tasks_with_agentspec,
+    print_agentspec_assignments,
     print_evolution_summary,
 )
+from hr_agent import print_assignments, run_hr_agent
+from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
+from skill_store import SkillStore
+from template_store import scaffold_project
 
 # Profile integration (requires agentspec with profile module)
 try:
-    from agentspec.profile.manager import ProfileManager
     from agentspec.parser.manifest import AgentManifest as _AgentManifest
+    from agentspec.profile.manager import ProfileManager
     PROFILES_AVAILABLE = True
 except ImportError:
     PROFILES_AVAILABLE = False
@@ -300,7 +300,7 @@ class SupervisorState:
     def record(self, task_id: str, action: str, detail: str):
         self.interventions[task_id] = self.interventions.get(task_id, 0) + 1
         self.events.append({
-            "time": datetime.now(timezone.utc).isoformat(),
+            "time": datetime.now(UTC).isoformat(),
             "task_id": task_id,
             "action": action,
             "detail": detail,
@@ -345,7 +345,7 @@ def run_agent_with_supervision(
             elif count == 1:
                 # Restart: try again with a simpler prompt
                 supervisor.record(task_id, "RESTART",
-                    f"Agent stalled again after probe. Simplifying prompt.")
+                    "Agent stalled again after probe. Simplifying prompt.")
                 gitea("POST", f"/api/v1/repos/{REPO}/issues/{issue_number}/comments", {
                     "body": f"🔄 **Supervisor restart:** Retrying task `{task_id}` with simplified context."
                 })
@@ -483,7 +483,7 @@ def run_retro(issue_numbers: list[int], supervisor: SupervisorState, sprint_time
             print(f"    - {b}")
 
     # Per-task breakdown
-    print(f"\n  Per-task:")
+    print("\n  Per-task:")
     for f in feedbacks:
         tid = f.get("task_id", "?")
         clarity = f.get("task_clarity", "?")
@@ -505,15 +505,15 @@ def run_retro(issue_numbers: list[int], supervisor: SupervisorState, sprint_time
         improvements.append(f"Fix DAG dependencies — {len(dep_blockers)} runtime deps discovered")
 
     if improvements:
-        print(f"\n  Improvements:")
+        print("\n  Improvements:")
         for imp in improvements:
             print(f"    → {imp}")
     else:
-        print(f"\n  No improvements needed — clean sprint!")
+        print("\n  No improvements needed — clean sprint!")
 
     # Noether-enhanced analysis (when using noether backend)
     if BACKEND == "noether" and feedbacks:
-        print(f"\n  Noether analysis:")
+        print("\n  Noether analysis:")
         # Build feedback items for the stage
         feedback_items = [{"is_parsed_yaml": True, "parsed": f} for f in feedbacks]
         kpi_data = {
@@ -534,7 +534,7 @@ def run_retro(issue_numbers: list[int], supervisor: SupervisorState, sprint_time
             improvements.extend(analysis.get("improvements", []))
 
         # Generate report via Noether stage
-        ended_at = datetime.now(timezone.utc).isoformat()
+        ended_at = datetime.now(UTC).isoformat()
         report = noether_write_report(
             "sprint", kpi_data, feedback_items, sprint_start_iso or ended_at, ended_at)
         if report and report.get("report_markdown"):
@@ -544,7 +544,7 @@ def run_retro(issue_numbers: list[int], supervisor: SupervisorState, sprint_time
 
     # Supervisor log
     if supervisor.events:
-        print(f"\n  Supervisor log:")
+        print("\n  Supervisor log:")
         for ev in supervisor.events:
             print(f"    [{ev['action']}] {ev['task_id']}: {ev['detail']}")
 
@@ -781,13 +781,13 @@ Keep to 2-3 tasks. Tests depend on implementation."""
             # Configure the agent's worktree with skill-specific files
             if task.get("agentspec") and "error" not in task["agentspec"]:
                 config_result = configure_agent_from_spec(project, task)
-                extra_cli_flags = config_result.get("extra_flags", [])
+                config_result.get("extra_flags", [])
                 files = config_result.get("files_written", [])
                 if files:
                     print(f"  AgentSpec config: {', '.join(files)}")
             else:
                 config_result = configure_agent(project, task, framework)
-                extra_cli_flags = config_result.get("extra_flags", [])
+                config_result.get("extra_flags", [])
                 print_config_summary(project, framework)
 
             # Agent writes code (with supervisor timeout)
@@ -897,7 +897,7 @@ Respond ONLY: APPROVED or CHANGES_NEEDED: reason"""
                             print(f"  PR #{pr_num} MERGED ✓")
                             merged = True
                         else:
-                            print(f"  Merge FAILED — branch may have conflicts")
+                            print("  Merge FAILED — branch may have conflicts")
                         break
 
                     # Changes requested — agent fixes
@@ -940,7 +940,7 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
 
                 if not merged and review_cycle == MAX_REVIEW_CYCLES:
                     # Force merge after max cycles
-                    print(f"  Max review cycles reached — force merging")
+                    print("  Max review cycles reached — force merging")
                     merge_ok = git_merge_branch(branch, f"Merge PR #{pr_num}: [{tid}] {title} (force after {MAX_REVIEW_CYCLES} cycles)")
                     if merge_ok:
                         print(f"  PR #{pr_num} FORCE MERGED")
@@ -986,7 +986,7 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
 
     # ── Step 8: Retro ───────────────────────────────────────────────────
     print()
-    sprint_start_iso = datetime.fromtimestamp(sprint_start, tz=timezone.utc).isoformat()
+    sprint_start_iso = datetime.fromtimestamp(sprint_start, tz=UTC).isoformat()
     run_retro(list(issue_map.values()), supervisor, sprint_time, sprint_start_iso)
 
     # ── Step 9: Auto-evolve agents based on retro ──────────────────────
@@ -1054,7 +1054,7 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
             try:
                 manifest = AgentManifest(
                     name=f"caloron-agent-{tid}",
-                    version=f"1.0.0",
+                    version="1.0.0",
                     description=task_data.get("title", ""),
                 )
                 profile = profile_mgr.load_or_create(manifest)

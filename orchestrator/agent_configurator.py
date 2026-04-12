@@ -237,7 +237,7 @@ def configure_agent(
     """
     skills = task.get("skills", [])
     mcp_urls = task.get("mcp_urls", [])
-    model = task.get("model", "balanced")
+    task.get("model", "balanced")
     deps = task.get("dependencies", {})
 
     extra_flags = []
@@ -275,7 +275,6 @@ def configure_claude_code(
 
     Both are generated so agents work whether claude CLI is available or not.
     """
-    import subprocess
     extra_flags = []
 
     if mcp_urls:

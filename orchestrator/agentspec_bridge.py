@@ -15,13 +15,12 @@ but preserves backward compatibility with the existing skill_store flow.
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 try:
-    from agentspec import AgentManifest, load_agent, resolve, ResolvedPlan, agent_hash
+    from agentspec import AgentManifest, ResolvedPlan, agent_hash, load_agent, resolve
     from agentspec.parser.manifest import (
         BehaviorSpec,
         ModelSpec,
@@ -87,7 +86,7 @@ def task_to_manifest(task: dict[str, Any], preferred_framework: str = "claude-co
     prompt = task.get("agent_prompt", "")
     caloron_model = task.get("model", "balanced")
     caloron_skills = task.get("skills", [])
-    caloron_creds = task.get("credentials", [])
+    task.get("credentials", [])
     caloron_mcps = task.get("mcp_urls", [])
 
     # Map skills to agentspec abstract skills (deduplicated)

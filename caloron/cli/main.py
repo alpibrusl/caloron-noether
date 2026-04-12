@@ -22,22 +22,21 @@ import time
 from pathlib import Path
 
 import typer
-
 from acli import (
     ACLIApp,
+    ConflictError,
+    InvalidArgsError,
+    NotFoundError,
     OutputFormat,
+    PreconditionError,
     acli_command,
     emit,
     success_envelope,
-    NotFoundError,
-    InvalidArgsError,
-    ConflictError,
-    PreconditionError,
 )
 
 from caloron import __version__
-from caloron.project.store import Project, ProjectStore
 from caloron.metrics.collector import MetricsCollector
+from caloron.project.store import Project, ProjectStore
 
 app = ACLIApp(
     name="caloron",
@@ -88,9 +87,11 @@ def init(
     try:
         project = store.create(name=name, repo=repo, backend=backend, framework=framework)
     except FileExistsError as e:
-        raise ConflictError(str(e), hint=f"Use a different name or run `caloron projects delete {name}`")
+        raise ConflictError(
+            str(e), hint=f"Use a different name or run `caloron projects delete {name}`"
+        ) from e
     except ValueError as e:
-        raise InvalidArgsError(str(e))
+        raise InvalidArgsError(str(e)) from e
 
     data = {
         "name": project.name,
@@ -110,7 +111,7 @@ def init(
         sys.stdout.write(f"  Framework: {framework}\n")
         if repo:
             sys.stdout.write(f"  Repo:      {repo}\n")
-        sys.stdout.write(f"\nNow run: caloron sprint \"<your goal>\"\n")
+        sys.stdout.write("\nNow run: caloron sprint \"<your goal>\"\n")
 
 
 # ── sprint ─────────────────────────────────────────────────────────────────
@@ -496,11 +497,11 @@ def metrics(
         sys.stdout.write(f"  Avg sprint time:     {m.avg_sprint_time_s:.0f}s\n")
         sys.stdout.write(f"  Supervisor events:   {m.total_supervisor_events}\n")
         if m.most_common_blockers:
-            sys.stdout.write(f"\n  Most common blockers:\n")
+            sys.stdout.write("\n  Most common blockers:\n")
             for blocker, count in m.most_common_blockers:
                 sys.stdout.write(f"    {count:>3}× {blocker}\n")
         if m.tools_used:
-            sys.stdout.write(f"\n  Most used tools:\n")
+            sys.stdout.write("\n  Most used tools:\n")
             for tool, count in m.tools_used[:5]:
                 sys.stdout.write(f"    {count:>3}× {tool}\n")
 
@@ -623,7 +624,7 @@ def projects_switch(
     try:
         store.set_active(name)
     except FileNotFoundError as e:
-        raise NotFoundError(str(e))
+        raise NotFoundError(str(e)) from e
 
     data = {"active": name}
     if output == OutputFormat.json:
@@ -712,3 +713,7 @@ def config_set(
 
 def main() -> None:
     app.run()
+
+
+if __name__ == "__main__":
+    main()

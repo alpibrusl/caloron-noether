@@ -13,10 +13,10 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -79,13 +79,13 @@ class ProjectStore:
                     projects.append(p)
         return projects
 
-    def get(self, name: str) -> Optional[Project]:
+    def get(self, name: str) -> Project | None:
         path = PROJECTS_DIR / name
         if not path.exists():
             return None
         return self._load(path)
 
-    def _load(self, path: Path) -> Optional[Project]:
+    def _load(self, path: Path) -> Project | None:
         config = path / "config.yml"
         if not config.exists():
             # Default project from directory name only
@@ -140,7 +140,7 @@ class ProjectStore:
             "backend": backend,
             "framework": framework,
             "work_dir": work_dir,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
         project.config_path.write_text(yaml.dump(config_data, sort_keys=False))
 
@@ -168,12 +168,12 @@ class ProjectStore:
             raise FileNotFoundError(f"Project not found: {name}")
         ACTIVE_PROJECT_FILE.write_text(name)
 
-    def get_active(self) -> Optional[str]:
+    def get_active(self) -> str | None:
         if ACTIVE_PROJECT_FILE.exists():
             return ACTIVE_PROJECT_FILE.read_text().strip()
         return None
 
-    def active(self) -> Optional[Project]:
+    def active(self) -> Project | None:
         name = self.get_active()
         if not name:
             return None
@@ -183,7 +183,7 @@ class ProjectStore:
         """Append a sprint result to the project's history."""
         history = json.loads(project.sprints_path.read_text())
         sprint_data["sprint_id"] = len(history["sprints"]) + 1
-        sprint_data["completed_at"] = datetime.now(timezone.utc).isoformat()
+        sprint_data["completed_at"] = datetime.now(UTC).isoformat()
         history["sprints"].append(sprint_data)
         project.sprints_path.write_text(json.dumps(history, indent=2))
         return sprint_data["sprint_id"]
@@ -193,7 +193,7 @@ class ProjectStore:
             return []
         return json.loads(project.sprints_path.read_text()).get("sprints", [])
 
-    def get_sprint(self, project: Project, sprint_id: int) -> Optional[dict[str, Any]]:
+    def get_sprint(self, project: Project, sprint_id: int) -> dict[str, Any] | None:
         for s in self.get_sprints(project):
             if s.get("sprint_id") == sprint_id:
                 return s

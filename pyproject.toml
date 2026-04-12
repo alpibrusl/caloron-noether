@@ -54,6 +54,28 @@ Issues = "https://github.com/alpibrusl/caloron-noether/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["caloron", "orchestrator"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["caloron", "orchestrator", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # line length — handled by formatter
+    "B008",   # function call in default arg — Typer requires this for Option/Argument
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy orchestrator scripts predate the lint rules; don't touch them
+"orchestrator/*" = ["E701", "E722", "B904", "F401"]
+# Tests can use bare except for unstable assertions
+"tests/*" = ["E722"]
+
 [tool.hatch.build.targets.sdist]
 include = [
     "caloron",
@@ -69,11 +91,13 @@ include = [
 ]
 exclude = [
     "**/__pycache__",
-    "target",
+    "**/target",          # Rust build artifacts (shell/target, etc.)
+    "**/*.pyc",
     ".venv",
+    ".pytest_cache",
     "site",
-    "tests",
     "demo",
     "context",
     "docs/casts",
+    "dist",
 ]

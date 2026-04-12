@@ -6,12 +6,10 @@ Analyzes each task's requirements and matches them to available skills.
 """
 import json
 import os
-import subprocess
 import re
-from pathlib import Path
+import subprocess
 
-from skill_store import SkillStore, Skill
-
+from skill_store import Skill, SkillStore
 
 SANDBOX = os.environ.get("SANDBOX", "scripts/sandbox-agent.sh")
 WORK = os.environ.get("WORK", "/tmp/caloron-full-loop")
