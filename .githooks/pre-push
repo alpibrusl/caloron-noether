@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -e
+echo "→ cargo test --all"
+cargo test --all
+echo "✓ pre-push OK"

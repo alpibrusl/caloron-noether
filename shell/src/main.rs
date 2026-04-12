@@ -57,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
 // === Request/Response types ===
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct HeartbeatRequest {
     agent_id: String,
     sprint_id: String,
@@ -118,7 +119,10 @@ async fn handle_heartbeat(
         "Heartbeat received"
     );
 
-    Json(OkResponse { ok: true, pid: None })
+    Json(OkResponse {
+        ok: true,
+        pid: None,
+    })
 }
 
 async fn handle_spawn(
@@ -129,7 +133,13 @@ async fn handle_spawn(
 
     match state
         .spawner
-        .spawn(&req.sprint_id, &req.task_id, &req.agent_id, &req.repo, &req.worktree_base)
+        .spawn(
+            &req.sprint_id,
+            &req.task_id,
+            &req.agent_id,
+            &req.repo,
+            &req.worktree_base,
+        )
         .await
     {
         Ok(pid) => {
@@ -152,9 +162,7 @@ async fn handle_spawn(
     }
 }
 
-async fn handle_status(
-    State(state): State<Arc<Mutex<AppState>>>,
-) -> Json<StatusResponse> {
+async fn handle_status(State(state): State<Arc<Mutex<AppState>>>) -> Json<StatusResponse> {
     let state = state.lock().await;
 
     let agents = state

@@ -1,11 +1,12 @@
-use std::collections::HashMap;
 use chrono::{DateTime, Utc};
+use std::collections::HashMap;
 
 /// In-memory heartbeat store with async KV persistence via Noether CLI.
 pub struct HeartbeatStore {
     entries: HashMap<String, HeartbeatEntry>,
 }
 
+#[allow(dead_code)]
 struct HeartbeatEntry {
     sprint_id: String,
     last_heartbeat: DateTime<Utc>,

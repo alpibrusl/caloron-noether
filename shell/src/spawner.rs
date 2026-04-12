@@ -22,7 +22,7 @@ impl AgentSpawner {
         sprint_id: &str,
         task_id: &str,
         agent_id: &str,
-        repo: &str,
+        _repo: &str,
         worktree_base: &str,
     ) -> Result<u32> {
         let worktree_path = format!("{worktree_base}/{agent_id}-{sprint_id}");
@@ -58,8 +58,8 @@ impl AgentSpawner {
         }
 
         // Step 2: Start caloron-harness in the worktree
-        let shell_url = std::env::var("CALORON_SHELL_URL")
-            .unwrap_or_else(|_| "http://localhost:7710".into());
+        let shell_url =
+            std::env::var("CALORON_SHELL_URL").unwrap_or_else(|_| "http://localhost:7710".into());
 
         let child = tokio::process::Command::new("caloron-harness")
             .arg("start")
@@ -95,6 +95,7 @@ impl AgentSpawner {
     }
 
     /// Kill an agent process.
+    #[allow(dead_code)]
     pub fn kill(&mut self, agent_id: &str) -> Result<()> {
         if let Some((_, pid)) = self.processes.remove(agent_id) {
             unsafe {
@@ -113,6 +114,7 @@ pub fn is_process_alive(pid: u32) -> bool {
 }
 
 #[cfg(unix)]
+#[allow(dead_code)]
 unsafe fn libc_kill(pid: u32) {
     unsafe { libc::kill(pid as i32, libc::SIGTERM) };
 }
