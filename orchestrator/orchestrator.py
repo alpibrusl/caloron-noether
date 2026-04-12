@@ -644,7 +644,7 @@ def main():
     print(f"  Goal: {goal}")
     if BACKEND == "noether":
         print(f"  Stages: {NOETHER_STAGES_DIR}")
-    print(f"  AgentSpec: {'enabled' if AGENTSPEC_AVAILABLE else 'disabled (pip install agentspec)'}")
+    print(f"  AgentSpec: {'enabled' if AGENTSPEC_AVAILABLE else 'disabled (pip install agentspec-alpibru)'}")
     if po_context:
         print(f"  (with learnings from {len(learnings['sprints'])} previous sprint(s))")
     # Show agent versions if any exist

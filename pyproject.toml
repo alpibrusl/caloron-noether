@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "caloron-alpibru"
+version = "0.1.0"
+description = "Autonomous AI sprint orchestration — agents that ship real code via Git. (Import as `caloron`.)"
+readme = "README.md"
+license = "EUPL-1.2"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Alfonso Sastre", email = "alfonso@alpibru.com" }]
+maintainers = [{ name = "Alpibru", email = "hello@alpibru.com" }]
+keywords = [
+    "agent", "ai-agent", "orchestration", "sprint", "autonomous",
+    "claude", "gemini", "git", "caloron", "agentspec",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "agentspec-alpibru>=0.1.0",
+    "pyyaml>=6.0",
+    "acli-spec>=0.4.0",
+    "typer>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+caloron = "caloron.cli.main:main"
+
+[project.urls]
+Homepage = "https://www.alpibru.com"
+Documentation = "https://alpibrusl.github.io/caloron-noether/"
+Repository = "https://github.com/alpibrusl/caloron-noether"
+Issues = "https://github.com/alpibrusl/caloron-noether/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["caloron", "orchestrator"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "caloron",
+    "orchestrator",
+    "scripts",
+    "stages",
+    "compositions",
+    "shell",
+    "templates",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+]
+exclude = [
+    "**/__pycache__",
+    "target",
+    ".venv",
+    "site",
+    "tests",
+    "demo",
+    "context",
+    "docs/casts",
+]
