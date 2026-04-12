@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
-# Local mirror of the CI rustfmt + clippy gates.
+# Local mirror of the CI lint gates (Rust + Python).
 # Enable once per clone with: git config core.hooksPath .githooks
 set -e
 
-if ! git diff --cached --name-only --diff-filter=ACM | grep -qE '\.(rs|toml)$'; then
-  exit 0
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+
+# ── Rust gates ──────────────────────────────────────────────────────────────
+if echo "$STAGED" | grep -qE '\.(rs|toml)$'; then
+  echo "→ cargo fmt --check"
+  cargo fmt --all -- --check
+
+  echo "→ cargo clippy --all-targets --all-features -- -D warnings"
+  cargo clippy --all-targets --all-features -- -D warnings
 fi
 
-echo "→ cargo fmt --check"
-cargo fmt --all -- --check
-
-echo "→ cargo clippy --all-targets --all-features -- -D warnings"
-cargo clippy --all-targets --all-features -- -D warnings
+# ── Python gates ────────────────────────────────────────────────────────────
+if echo "$STAGED" | grep -qE '\.py$'; then
+  if ! command -v ruff >/dev/null 2>&1; then
+    echo "✗ ruff is not installed (pip install ruff or pip install -e '.[dev]')"
+    exit 1
+  fi
+  echo "→ ruff check caloron orchestrator tests"
+  ruff check caloron orchestrator tests
+fi
 
 echo "✓ pre-commit OK"

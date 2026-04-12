@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
+# Local mirror of the CI test gates (Rust + Python).
 set -e
+
+# ── Rust ────────────────────────────────────────────────────────────────────
 echo "→ cargo test --all"
 cargo test --all
+
+# ── Python ──────────────────────────────────────────────────────────────────
+# Only run if pytest is importable in the active Python environment
+if python3 -c "import pytest" 2>/dev/null && [ -d tests ]; then
+  echo "→ python3 -m pytest tests/"
+  python3 -m pytest tests/ -q
+else
+  echo "  (skipping Python tests — pytest not available; install with: pip install -e '.[dev]')"
+fi
+
 echo "✓ pre-push OK"
