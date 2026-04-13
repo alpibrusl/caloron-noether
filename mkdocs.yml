@@ -53,6 +53,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Live Demo: demo.md
+  - "Tutorial: evolve citecheck": tutorial/index.md
   - Getting Started: guide/getting-started.md
   - Guide:
     - Architecture: guide/architecture.md
