@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -46,6 +48,26 @@ app = ACLIApp(
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _resolve_sandbox() -> str:
+    """Pick a sandbox script: user override → bwrap on Linux → passthrough."""
+    override = os.environ.get("SANDBOX")
+    if override:
+        return override
+
+    import caloron as _pkg
+    scripts_dir = Path(_pkg.__file__).parent / "_scripts"
+    # Fallback: repo layout (editable install or source checkout)
+    if not scripts_dir.exists():
+        scripts_dir = Path(__file__).parent.parent.parent / "scripts"
+
+    bwrap_sandbox = scripts_dir / "sandbox-agent.sh"
+    passthrough = scripts_dir / "sandbox-passthrough.sh"
+
+    if platform.system() == "Linux" and shutil.which("bwrap") and bwrap_sandbox.exists():
+        return str(bwrap_sandbox)
+    return str(passthrough)
 
 
 def _get_active_or_fail(store: ProjectStore) -> Project:
@@ -154,17 +176,23 @@ def sprint(
             hint="Make sure caloron-noether package is installed correctly",
         )
 
+    # Warn if the selected framework is known to be claude-code-only in practice.
+    # Other frameworks run in one-shot mode without tool access — see issue #3.
+    if project.framework and project.framework != "claude-code":
+        sys.stderr.write(
+            f"WARNING: framework '{project.framework}' is experimental in caloron — "
+            "only 'claude-code' currently runs in agentic mode with file/shell tool access. "
+            "Non-claude frameworks may produce plans and reviews but no actual code. "
+            "See https://github.com/alpibrusl/caloron-noether/issues/3\n"
+        )
+
     # Build environment for the orchestrator
     env = os.environ.copy()
     env["WORK"] = project.work_dir or str(project.path / "workspace")
     env["CALORON_BACKEND"] = project.backend
+    env["CALORON_FRAMEWORK"] = project.framework or "claude-code"
     env["AGENT_TIMEOUT"] = str(timeout)
-
-    # Sandbox path
-    sandbox = env.get("SANDBOX") or str(
-        Path(__file__).parent.parent.parent / "scripts" / "sandbox-agent.sh"
-    )
-    env["SANDBOX"] = sandbox
+    env["SANDBOX"] = _resolve_sandbox()
 
     if output == OutputFormat.json:
         # In JSON mode, capture and parse the orchestrator output

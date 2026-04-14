@@ -54,6 +54,9 @@ Issues = "https://github.com/alpibrusl/caloron-noether/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["caloron", "orchestrator"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"scripts" = "caloron/_scripts"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

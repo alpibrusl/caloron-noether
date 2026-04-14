@@ -51,6 +51,11 @@ LEARNINGS_FILE = os.path.join(os.environ.get("WORK", "/tmp/caloron-full-loop"), 
 
 # Backend: "direct" (Claude CLI) or "noether" (via Noether stages)
 BACKEND = os.environ.get("CALORON_BACKEND", "direct")
+
+# Default agent framework — set by `caloron init --framework` via the CLI.
+# Applies to the PO, HR, and reviewer agents; individual tasks may still
+# override this in the PO-generated DAG.
+FRAMEWORK = os.environ.get("CALORON_FRAMEWORK", "claude-code")
 NOETHER_STAGES_DIR = os.environ.get("NOETHER_STAGES_DIR",
     str(Path(__file__).parent.parent / "stages"))
 
@@ -663,15 +668,15 @@ Output ONLY a JSON array. Each task has:
 - title: one-line description
 - depends_on: list of task IDs ([] if none)
 - agent_prompt: specific instructions (exact file paths, function signatures, expected behavior)
-- framework: which tool to use (default: "claude-code"). Available: {available_frameworks}
+- framework: which tool to use (default: "{FRAMEWORK}"). Available: {available_frameworks}
 
 Example:
-[{{"id":"impl","title":"Implement module","depends_on":[],"agent_prompt":"Create src/mod.py with...","framework":"claude-code"}},
- {{"id":"tests","title":"Write tests","depends_on":["impl"],"agent_prompt":"Create tests/test_mod.py...","framework":"claude-code"}}]
+[{{"id":"impl","title":"Implement module","depends_on":[],"agent_prompt":"Create src/mod.py with...","framework":"{FRAMEWORK}"}},
+ {{"id":"tests","title":"Write tests","depends_on":["impl"],"agent_prompt":"Create tests/test_mod.py...","framework":"{FRAMEWORK}"}}]
 
 Keep to 2-3 tasks. Tests depend on implementation."""
 
-    po_cmd = build_agent_command("claude-code", po_prompt)
+    po_cmd = build_agent_command(FRAMEWORK, po_prompt)
     po_result = subprocess.run(
         [SANDBOX, project] + po_cmd,
         capture_output=True, text=True, timeout=120)
@@ -695,13 +700,13 @@ Keep to 2-3 tasks. Tests depend on implementation."""
     if AGENTSPEC_AVAILABLE:
         print("--- AgentSpec: Resolving agents ---")
         agents_dir = os.path.join(WORK, "agents")
-        tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
+        tasks = run_hr_agent(tasks, skill_store, preferred_framework=FRAMEWORK)
         tasks = enrich_tasks_with_agentspec(
-            tasks, preferred_framework="claude-code", agents_dir=agents_dir)
+            tasks, preferred_framework=FRAMEWORK, agents_dir=agents_dir)
         print_agentspec_assignments(tasks)
     else:
         print("--- HR Agent: Assigning skills (agentspec not available) ---")
-        tasks = run_hr_agent(tasks, skill_store, preferred_framework="claude-code")
+        tasks = run_hr_agent(tasks, skill_store, preferred_framework=FRAMEWORK)
         print_assignments(tasks)
 
     # Register agents in version store (or load existing versions)
@@ -712,7 +717,7 @@ Keep to 2-3 tasks. Tests depend on implementation."""
         spec = {
             "personality": "developer",
             "model": t.get("model", "balanced"),
-            "framework": t.get("framework", "claude-code"),
+            "framework": t.get("framework", FRAMEWORK),
             "capabilities": t.get("capabilities", ["code-writing", "python"]),
             "extra_instructions": "",
         }
@@ -721,7 +726,7 @@ Keep to 2-3 tasks. Tests depend on implementation."""
         # If agent has evolved, use the latest version's spec
         current = agent_store.current(tid)
         if current and current["version"] != "1.0":
-            t["framework"] = current.get("framework", t.get("framework", "claude-code"))
+            t["framework"] = current.get("framework", t.get("framework", FRAMEWORK))
             # Prepend evolved instructions to agent prompt
             evolved_instructions = current.get("extra_instructions", "")
             if evolved_instructions:
@@ -762,7 +767,7 @@ Keep to 2-3 tasks. Tests depend on implementation."""
             tid = task["id"]
             title = task["title"]
             prompt = task.get("agent_prompt", title)
-            framework = task.get("framework", "claude-code")
+            framework = task.get("framework", FRAMEWORK)
             issue_num = issue_map.get(tid, 0)
             task_start = time.time()
             blockers = []
