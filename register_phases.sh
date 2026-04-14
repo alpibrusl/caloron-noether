@@ -52,12 +52,28 @@ specs = {
     },
 }
 
+llm_helper = (root / "stages" / "phases" / "_llm.py").read_text()
+
+def _inline_helper(code: str) -> str:
+    """Strip the helper import and prepend the helper source in-place."""
+    out = []
+    for line in code.splitlines():
+        if line.strip().startswith("from stages.phases._llm import"):
+            continue
+        out.append(line)
+    return llm_helper + "\n\n# ── stage implementation ─────────────────\n\n" + "\n".join(out)
+
+
 ids = {}
 for name, meta in specs.items():
     code_path = root / "stages" / "phases" / f"{name}.py"
     if not code_path.exists():
         print(f"missing stage source: {code_path}", file=sys.stderr)
         sys.exit(1)
+    stage_code = code_path.read_text()
+    # Only architect_po / dev_po use the LLM helper; skip inlining elsewhere.
+    if "stages.phases._llm" in stage_code:
+        stage_code = _inline_helper(stage_code)
     spec = {
         "name": name,
         "description": meta["description"],
@@ -65,7 +81,7 @@ for name, meta in specs.items():
         "output": meta["output"],
         "effects": meta.get("effects", []),
         "language": "python",
-        "implementation": code_path.read_text(),
+        "implementation": stage_code,
     }
     spec_path = Path(f"/tmp/caloron-phase-{name}.json")
     spec_path.write_text(json.dumps(spec))

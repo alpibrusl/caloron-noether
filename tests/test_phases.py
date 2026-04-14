@@ -18,6 +18,17 @@ from stages.phases import (  # noqa: E402
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_real_llm(monkeypatch):
+    """Disable LLM calls by default so tests don't hit real providers.
+
+    Tests that want the LLM path monkeypatch call_llm explicitly; this
+    fixture makes everything else deterministic and fast.
+    """
+    monkeypatch.setattr(architect_po, "call_llm", lambda _p, timeout=120: None)
+    monkeypatch.setattr(dev_po, "call_llm", lambda _p, timeout=120: None)
+
+
 def _validate_arch_shape(out: dict) -> None:
     """Assert the architect output matches the phase-boundary schema."""
     for key in ("design_doc", "components", "risks"):
@@ -167,7 +178,7 @@ def test_architect_uses_llm_output_when_schema_valid(monkeypatch):
         '{"name": "Ranker", "purpose": "Score records", "interface": "rank(list) -> list"}'
         '], "risks": ["Ingestor could saturate the API."]}'
     )
-    monkeypatch.setattr(architect_po, "_llm_call", lambda _prompt, timeout=60: canned)
+    monkeypatch.setattr(architect_po, "call_llm", lambda _prompt, timeout=120: canned)
     out = architect_po.execute({"goal": "Build an anomaly pipeline", "constraints": ""})
     names = [c["name"] for c in out["components"]]
     assert names == ["Ingestor", "Ranker"]
@@ -176,7 +187,7 @@ def test_architect_uses_llm_output_when_schema_valid(monkeypatch):
 
 
 def test_architect_falls_back_when_llm_returns_invalid_json(monkeypatch):
-    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: "sorry, here's no JSON for you")
+    monkeypatch.setattr(architect_po, "call_llm", lambda _p, timeout=120: "sorry, here's no JSON for you")
     out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
     # Falls back to template — Parser is extracted by the regex heuristic.
     assert "Parser" in [c["name"] for c in out["components"]]
@@ -184,14 +195,14 @@ def test_architect_falls_back_when_llm_returns_invalid_json(monkeypatch):
 
 def test_architect_falls_back_when_llm_output_misses_required_fields(monkeypatch):
     bad = '{"design_doc": "x", "components": [{"name": "NoInterface"}]}'
-    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: bad)
+    monkeypatch.setattr(architect_po, "call_llm", lambda _p, timeout=120: bad)
     out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
     # Template path kicks in; LLM output is discarded.
     assert out["design_doc"].startswith("# Design")
 
 
 def test_architect_falls_back_when_llm_returns_none(monkeypatch):
-    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: None)
+    monkeypatch.setattr(architect_po, "call_llm", lambda _p, timeout=120: None)
     out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
     assert "Parser" in [c["name"] for c in out["components"]]
 
@@ -207,7 +218,7 @@ def test_dev_uses_llm_tasks_when_schema_valid(monkeypatch):
         '"framework": "claude-code", "component": "Parser"}'
         ']}'
     )
-    monkeypatch.setattr(dev_po, "_llm_call", lambda _p, timeout=60: canned)
+    monkeypatch.setattr(dev_po, "call_llm", lambda _p, timeout=120: canned)
     out = dev_po.execute(
         {
             "components": [
@@ -226,7 +237,7 @@ def test_dev_falls_back_when_llm_references_unknown_component(monkeypatch):
         '{"tasks": [{"id": "impl-ghost", "title": "Implement Ghost", '
         '"depends_on": [], "agent_prompt": "do it", "component": "Ghost"}]}'
     )
-    monkeypatch.setattr(dev_po, "_llm_call", lambda _p, timeout=60: canned)
+    monkeypatch.setattr(dev_po, "call_llm", lambda _p, timeout=120: canned)
     out = dev_po.execute(
         {
             "components": [{"name": "Parser", "purpose": "p", "interface": "i"}],
@@ -238,11 +249,69 @@ def test_dev_falls_back_when_llm_references_unknown_component(monkeypatch):
     assert ids == ["impl-parser", "tests-parser"]
 
 
-def test_llm_call_returns_none_without_api_key(monkeypatch):
-    """Safety check: no key → no call, no exception, None."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert architect_po._llm_call("anything") is None
-    assert dev_po._llm_call("anything") is None
+def test_call_llm_returns_none_with_nothing_configured(monkeypatch):
+    """Safety check: no provider available → no call, no exception, None."""
+    from stages.phases import _llm
+
+    # Scrub every key + force no CLI on PATH via an empty-ish which().
+    for key in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("CALORON_LLM_PROVIDER", raising=False)
+    monkeypatch.setattr(_llm.shutil, "which", lambda _cmd: None)
+    assert _llm.call_llm("anything") is None
+
+
+def test_call_llm_respects_explicit_provider_override(monkeypatch):
+    """CALORON_LLM_PROVIDER=claude-cli must skip other providers."""
+    from stages.phases import _llm
+
+    calls: list = []
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "claude-cli")
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: calls.append("claude") or "via claude")
+    monkeypatch.setattr(_llm, "_anthropic_api", lambda p, t: calls.append("anthropic") or None)
+    assert _llm.call_llm("hi") == "via claude"
+    assert calls == ["claude"]
+
+
+def test_call_llm_falls_through_when_first_provider_returns_none(monkeypatch):
+    from stages.phases import _llm
+
+    # Simulate: claude-cli not available, gemini-cli returns text.
+    monkeypatch.delenv("CALORON_LLM_PROVIDER", raising=False)
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: None)
+    monkeypatch.setattr(_llm, "_gemini_cli", lambda p, t: "via gemini")
+    # Prevent later providers from being consulted at all.
+    monkeypatch.setattr(_llm, "_cursor_cli", lambda p, t: "leak")
+    assert _llm.call_llm("hi") == "via gemini"
+
+
+def test_call_llm_anthropic_api_path(monkeypatch):
+    """HTTPS API path: mocked _post_json returns a well-formed envelope."""
+    from stages.phases import _llm
+
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "anthropic-api")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setattr(
+        _llm,
+        "_post_json",
+        lambda *a, **k: {"content": [{"text": "response text"}]},
+    )
+    assert _llm.call_llm("hi") == "response text"
+
+
+def test_call_llm_gemini_api_path(monkeypatch):
+    from stages.phases import _llm
+
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "gemini-api")
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        _llm,
+        "_post_json",
+        lambda *a, **k: {
+            "candidates": [{"content": {"parts": [{"text": "gemini says hi"}]}}]
+        },
+    )
+    assert _llm.call_llm("hi") == "gemini says hi"
 
 
 # ── Original review_po test (unchanged) ──────────────────────────────────────

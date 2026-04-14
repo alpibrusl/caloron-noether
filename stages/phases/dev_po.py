@@ -6,57 +6,17 @@ Input:  { components: List[Record], design_doc: Text, risks: List[Text],
 Output: { design_doc: Text, components: List[Record], risks: List[Text],
           tasks: List[Record] }
 
-When ANTHROPIC_API_KEY is set, asks an LLM to write the per-task
-agent prompts using the full design doc as grounding, which produces
-much better instructions than the template. Falls back to a
-deterministic template decomposition in offline / no-key environments.
-Carries the architect fields through so downstream phases can read them.
-Stage is hermetic; everything needed at runtime lives in this file.
+Same provider chain as architect_po — see _llm.py. Falls back to a
+deterministic template task layout when no LLM is available.
+register_phases.sh concatenates _llm.py into this file's
+implementation at registration time so the stage stays hermetic
+when executed inside Noether.
 """
 
 import json as _json
-import os
 import re
-import urllib.error
-import urllib.request
 
-_ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
-_DEFAULT_MODEL = "claude-sonnet-4-5"
-
-
-def _llm_call(prompt: str, timeout: int = 60) -> str | None:
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        return None
-    model = os.environ.get("CALORON_LLM_MODEL", _DEFAULT_MODEL)
-    body = _json.dumps(
-        {
-            "model": model,
-            "max_tokens": 4096,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-    ).encode()
-    req = urllib.request.Request(
-        _ANTHROPIC_ENDPOINT,
-        data=body,
-        headers={
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
-            resp = _json.loads(r.read())
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return None
-    content = resp.get("content") if isinstance(resp, dict) else None
-    if isinstance(content, list) and content:
-        text = content[0].get("text") if isinstance(content[0], dict) else None
-        if isinstance(text, str):
-            return text
-    return None
+from stages.phases._llm import call_llm
 
 
 def _parse_json_object(text: str) -> dict | None:
@@ -71,7 +31,6 @@ def _parse_json_object(text: str) -> dict | None:
 
 
 def _validate_tasks(data: dict, components: list) -> bool:
-    """Schema guard for the LLM output."""
     if not isinstance(data, dict):
         return False
     tasks = data.get("tasks")
@@ -86,7 +45,6 @@ def _validate_tasks(data: dict, components: list) -> bool:
                 return False
         if not isinstance(t.get("depends_on", []), list):
             return False
-        # Traceability: component must reference a real architect output.
         comp = t.get("component")
         if comp and comp not in component_names:
             return False
@@ -127,9 +85,6 @@ def _build_prompt(components: list, design_doc: str, framework: str) -> str:
         + "\n".join(comp_lines)
         + "\n</components>"
     )
-
-
-# ── Template fallback ───────────────────────────────────────────────────────
 
 
 def _slug(name: str) -> str:
@@ -173,9 +128,6 @@ def _template_tasks(components: list, framework: str) -> list:
     return tasks
 
 
-# ── Stage entry point ───────────────────────────────────────────────────────
-
-
 def execute(input: dict) -> dict:
     raw = input.get("components")
     if not isinstance(raw, list) or not raw:
@@ -189,7 +141,7 @@ def execute(input: dict) -> dict:
     design_doc = str(input.get("design_doc") or "")
 
     tasks = None
-    llm_text = _llm_call(_build_prompt(raw, design_doc, framework))
+    llm_text = call_llm(_build_prompt(raw, design_doc, framework))
     if llm_text:
         parsed = _parse_json_object(llm_text)
         if parsed and _validate_tasks(parsed, raw):
