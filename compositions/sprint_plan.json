@@ -1,0 +1,19 @@
+{
+  "description": "Sprint plan graph for `caloron sprint --graph`: architect decomposes goal into components, dev emits concrete {tasks} for the orchestrator. Shape is {tasks: [{id, title, depends_on, agent_prompt, framework}]} — required contract for --graph integration. For planning/inspection of the full pipeline including review, see full_cycle.json.",
+  "version": "0.1.0",
+  "root": {
+    "op": "Sequential",
+    "stages": [
+      {
+        "op": "Stage",
+        "id": "REGISTER:architect_po",
+        "_desc": "Architect PO — goal+constraints → components+design_doc+risks"
+      },
+      {
+        "op": "Stage",
+        "id": "REGISTER:dev_po",
+        "_desc": "Dev PO — components → concrete agent tasks"
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@ import pytest
 # Allow `import stages.phases…` regardless of how pytest is invoked.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stages.phases import architect_po, dev_po  # noqa: E402
+from stages.phases import architect_po, dev_po, review_po  # noqa: E402
 from stages.phases.phase_schemas import ArchitectOutput, Component  # noqa: E402
 
 # ── architect_po ─────────────────────────────────────────────────────────────
@@ -106,3 +106,46 @@ def test_full_cycle_chain():
     # Traceability back to component is preserved.
     component_names = {c["name"] for c in arch_out["components"]}
     assert {t["component"] for t in dev_out["tasks"]} == component_names
+
+
+# ── review_po ────────────────────────────────────────────────────────────────
+
+
+def test_review_rejects_empty_tasks():
+    with pytest.raises(ValueError, match="non-empty"):
+        review_po.execute({"tasks": [], "design_doc": "", "framework": "claude-code"})
+
+
+def test_review_emits_one_check_per_task_with_dependency():
+    arch = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    dev = dev_po.execute({"components": arch["components"], "sprint_id": "s1"})
+    rev = review_po.execute(
+        {"tasks": dev["tasks"], "design_doc": arch["design_doc"], "framework": "claude-code"}
+    )
+    checks = rev["review_checks"]
+    assert len(checks) == len(dev["tasks"])
+    for task, check in zip(dev["tasks"], checks, strict=True):
+        assert check["reviews"] == task["id"]
+        assert check["id"] == f"review-{task['id']}"
+
+
+def test_review_distinguishes_impl_from_tests_focus():
+    arch = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    dev = dev_po.execute({"components": arch["components"], "sprint_id": "s1"})
+    rev = review_po.execute(
+        {"tasks": dev["tasks"], "design_doc": arch["design_doc"], "framework": "claude-code"}
+    )
+    impl_foci = {c["focus"] for c in rev["review_checks"] if c["reviews"].startswith("impl-")}
+    tests_foci = {c["focus"] for c in rev["review_checks"] if c["reviews"].startswith("tests-")}
+    assert impl_foci and tests_foci and impl_foci.isdisjoint(tests_foci)
+
+
+def test_review_prompt_embeds_design_doc():
+    rev = review_po.execute(
+        {
+            "tasks": [{"id": "impl-foo", "title": "Implement foo"}],
+            "design_doc": "SENTINEL-DESIGN-TOKEN",
+            "framework": "claude-code",
+        }
+    )
+    assert "SENTINEL-DESIGN-TOKEN" in rev["review_checks"][0]["agent_prompt"]

@@ -244,6 +244,14 @@ register "dev_po" \
     "python3" \
     "$STAGES_DIR/phases/dev_po.py"
 
+register "review_po" \
+    "Review PO — turn dev tasks into reviewer-assignable checks against the design contract" \
+    '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}, "design_doc": "Text", "framework": "Text"}}' \
+    '{"type": "Record", "fields": {"review_checks": {"type": "List", "element": "Any"}}}' \
+    '[{"effect": "Pure"}]' \
+    "python3" \
+    "$STAGES_DIR/phases/review_po.py"
+
 echo ""
 echo "Done. Now replace REGISTER:* placeholders in compositions/*.json:"
 echo ""

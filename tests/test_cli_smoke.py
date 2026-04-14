@@ -132,6 +132,48 @@ def test_status_json_envelope(cli_env: dict[str, str]):
     assert "duration_ms" in data["meta"]
 
 
+def test_sprint_graph_missing_file(cli_env: dict[str, str]):
+    _run(["init", "graph-test"], cli_env)
+    result = _run(["sprint", "demo", "--graph", "/nonexistent/plan.json"], cli_env)
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    # Error should mention the graph file, not explode on the orchestrator
+    combined = (result.stdout + result.stderr).lower()
+    assert "graph" in combined or "not found" in combined
+
+
+def test_sprint_graph_without_noether_cli(cli_env: dict[str, str], tmp_path: Path):
+    """--graph with a valid file but no noether binary should fail cleanly."""
+    _run(["init", "graph-test"], cli_env)
+
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"description": "stub", "root": {"op": "Const", "value": {}}}))
+
+    # Scrub PATH so `noether` can't be found, but keep python + basic utils
+    # by pointing at a directory that only has python/coreutils.
+    env_no_noether = cli_env.copy()
+    env_no_noether["PATH"] = "/usr/bin:/bin"
+    # Confirm noether isn't in that PATH — if the test host has it globally
+    # under /usr/bin this assertion saves us from a false pass.
+    if shutil_which_in_path("noether", env_no_noether["PATH"]):
+        pytest.skip("noether present on /usr/bin, cannot exercise missing-CLI path")
+
+    result = _run(["sprint", "demo", "--graph", str(plan)], env_no_noether)
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    combined = (result.stdout + result.stderr).lower()
+    assert "noether" in combined
+
+
+def shutil_which_in_path(cmd: str, path: str) -> str | None:
+    """Lightweight `which` scoped to an explicit PATH."""
+    for d in path.split(os.pathsep):
+        candidate = Path(d) / cmd
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def test_config_set_and_get(cli_env: dict[str, str]):
     _run(["init", "cfg-test"], cli_env)
     set_result = _run(["config", "set", "framework", "gemini-cli"], cli_env)

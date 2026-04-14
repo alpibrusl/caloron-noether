@@ -1,5 +1,5 @@
 {
-  "description": "Multi-phase sprint: architect decomposes goal into components, dev turns them into agent tasks. MVP of the sub-graph pattern; extend with design / UX / review phases once this contract stabilises.",
+  "description": "Multi-phase sprint: architect decomposes the goal into components, dev turns those into concrete agent tasks, review plans per-task checks against the design contract. Extend with discover / design / UX / deploy phases as each boundary schema stabilises.",
   "version": "0.1.0",
   "root": {
     "op": "Sequential",
@@ -13,6 +13,11 @@
         "op": "Stage",
         "id": "REGISTER:dev_po",
         "_desc": "Dev PO — components → concrete agent tasks"
+      },
+      {
+        "op": "Stage",
+        "id": "REGISTER:review_po",
+        "_desc": "Review PO — tasks+design_doc → reviewer-assignable checks"
       }
     ]
   }

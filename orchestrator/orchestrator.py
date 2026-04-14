@@ -677,8 +677,28 @@ def main():
     print("=" * 60)
     print()
 
-    # ── Step 1: PO Agent ────────────────────────────────────────────────
-    print("--- Step 1: PO Agent ---")
+    # ── Step 1: PO Agent (or precomputed tasks from --graph) ────────────
+    precomputed = os.environ.get("CALORON_PRECOMPUTED_TASKS", "")
+    if precomputed and os.path.exists(precomputed):
+        print(f"--- Step 1: Using precomputed tasks from {precomputed} ---")
+        try:
+            tasks = json.loads(Path(precomputed).read_text())
+            if not isinstance(tasks, list) or not tasks:
+                raise ValueError("precomputed tasks file must be a non-empty list")
+        except Exception as e:
+            print(f"  ERROR: could not load precomputed tasks: {e}")
+            sys.exit(1)
+        Path(f"{WORK}/dag.json").write_text(json.dumps(tasks, indent=2))
+        for t in tasks:
+            deps = ", ".join(t.get("depends_on", [])) or "none"
+            print(f"  {t['id']}: {t['title']} (deps: {deps})")
+        print()
+        # Jump straight to Step 1.5 by falling through — skip the PO call.
+        _skip_po = True
+    else:
+        _skip_po = False
+
+    print("--- Step 1: PO Agent ---" if not _skip_po else "--- Skipping PO — tasks precomputed ---")
     available_frameworks = ", ".join(FRAMEWORKS.keys())
     po_prompt = f"""You are a Product Owner. Goal: {goal}
 {po_context}
@@ -695,22 +715,23 @@ Example:
 
 Keep to 2-3 tasks. Tests depend on implementation."""
 
-    po_cmd = build_agent_command(FRAMEWORK, po_prompt)
-    po_result = subprocess.run(
-        [SANDBOX, project] + po_cmd,
-        capture_output=True, text=True, timeout=120)
-    po_out = po_result.stdout or ""
+    if not _skip_po:
+        po_cmd = build_agent_command(FRAMEWORK, po_prompt)
+        po_result = subprocess.run(
+            [SANDBOX, project] + po_cmd,
+            capture_output=True, text=True, timeout=120)
+        po_out = po_result.stdout or ""
 
-    match = re.search(r"\[.*\]", po_out, re.DOTALL)
-    if not match:
-        print("  ERROR: PO produced no JSON")
-        sys.exit(1)
-    tasks = json.loads(match.group())
-    Path(f"{WORK}/dag.json").write_text(json.dumps(tasks, indent=2))
+        match = re.search(r"\[.*\]", po_out, re.DOTALL)
+        if not match:
+            print("  ERROR: PO produced no JSON")
+            sys.exit(1)
+        tasks = json.loads(match.group())
+        Path(f"{WORK}/dag.json").write_text(json.dumps(tasks, indent=2))
 
-    for t in tasks:
-        deps = ", ".join(t.get("depends_on", [])) or "none"
-        print(f"  {t['id']}: {t['title']} (deps: {deps})")
+        for t in tasks:
+            deps = ", ".join(t.get("depends_on", [])) or "none"
+            print(f"  {t['id']}: {t['title']} (deps: {deps})")
 
     # ── Step 1.5: AgentSpec resolve (or HR Agent fallback) ───────────────
     print()

@@ -50,6 +50,59 @@ app = ACLIApp(
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
+def _run_plan_graph(graph_path: Path, goal: str) -> list[dict]:
+    """Execute a Noether composition graph and extract its ``tasks`` output.
+
+    The graph must emit ``{tasks: [...]}`` — that's the contract for use
+    with ``caloron sprint --graph``. See ``compositions/sprint_plan.json``
+    for the reference example.
+    """
+    if not graph_path.is_file():
+        raise NotFoundError(f"Graph file not found: {graph_path}")
+    if not shutil.which("noether"):
+        raise PreconditionError(
+            "`noether` CLI not found on $PATH",
+            hint="Install Noether v0.3.0+ (cargo install noether-cli) or drop --graph",
+        )
+
+    stdin_payload = json.dumps({"goal": goal, "constraints": ""})
+    try:
+        proc = subprocess.run(
+            ["noether", "run", str(graph_path)],
+            input=stdin_payload,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise PreconditionError(f"noether run timed out after 120s: {e}") from e
+
+    if proc.returncode != 0:
+        raise PreconditionError(
+            f"noether run failed (exit {proc.returncode}): "
+            f"{(proc.stderr or proc.stdout or '').strip()[:400]}"
+        )
+
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        raise PreconditionError(f"noether output was not JSON: {e}") from e
+
+    # Accept either an ACLI envelope ({ok, data, ...}) or the raw output.
+    data = envelope.get("data", envelope) if isinstance(envelope, dict) else {}
+    # Graph output is sometimes nested one level (e.g. {"output": {...}}).
+    if isinstance(data, dict) and "tasks" not in data and "output" in data:
+        data = data["output"] or {}
+    tasks = data.get("tasks") if isinstance(data, dict) else None
+    if not isinstance(tasks, list) or not tasks:
+        raise PreconditionError(
+            "Graph did not emit a non-empty 'tasks' list in its output",
+            hint="The final stage must output {tasks: [...]}. "
+                 "See compositions/sprint_plan.json for a working example.",
+        )
+    return tasks
+
+
 def _resolve_sandbox() -> str:
     """Pick a sandbox script: user override → bwrap on Linux → passthrough."""
     override = os.environ.get("SANDBOX")
@@ -153,6 +206,12 @@ def sprint(
     goal: str = typer.Argument(help="Sprint goal description. type:string"),
     project_name: str = typer.Option("", "--project", "-p", help="Project name (default: active). type:string"),
     timeout: int = typer.Option(300, "--timeout", "-t", help="Per-agent timeout in seconds. type:number"),
+    graph: str = typer.Option(
+        "",
+        "--graph",
+        "-g",
+        help="Path to a Noether composition graph. If set, its {tasks} output replaces the built-in PO step. type:path",
+    ),
     output: OutputFormat = typer.Option(
         OutputFormat.text, "--output", help="Output format. type:enum[text|json|table]"
     ),
@@ -194,6 +253,20 @@ def sprint(
     env["CALORON_FRAMEWORK"] = project.framework or "claude-code"
     env["AGENT_TIMEOUT"] = str(timeout)
     env["SANDBOX"] = _resolve_sandbox()
+
+    # If the user supplied a plan graph, run it now and hand the resulting
+    # tasks to the orchestrator via a precomputed DAG file. The orchestrator
+    # honours CALORON_PRECOMPUTED_TASKS by skipping its built-in PO step.
+    if graph:
+        tasks = _run_plan_graph(Path(graph), goal)
+        Path(env["WORK"]).mkdir(parents=True, exist_ok=True)
+        tasks_file = Path(env["WORK"]) / "precomputed_tasks.json"
+        tasks_file.write_text(json.dumps(tasks, indent=2))
+        env["CALORON_PRECOMPUTED_TASKS"] = str(tasks_file)
+        sys.stderr.write(
+            f"Using graph '{graph}' — {len(tasks)} precomputed task(s) "
+            "replace the built-in PO step.\n"
+        )
 
     if output == OutputFormat.json:
         # In JSON mode, capture and parse the orchestrator output

@@ -78,6 +78,23 @@ class DevTask:
         return self.__dict__.copy()
 
 
+# ── Review output ────────────────────────────────────────────────────────────
+
+
+@dataclass
+class ReviewCheck:
+    """A single reviewer-assignable check against a dev task."""
+
+    id: str
+    reviews: str  # task id being reviewed
+    focus: str  # what to look at (correctness / tests / docs / security …)
+    agent_prompt: str
+    framework: str = "claude-code"
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.__dict__.copy()
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
