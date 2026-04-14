@@ -154,6 +154,100 @@ def test_review_distinguishes_impl_from_tests_focus():
     assert impl_foci and tests_foci and impl_foci.isdisjoint(tests_foci)
 
 
+# ── LLM path (mocked) ────────────────────────────────────────────────────────
+
+
+def test_architect_uses_llm_output_when_schema_valid(monkeypatch):
+    """Happy path: LLM returns well-formed JSON, stage trusts it."""
+    canned = (
+        "Here's the plan:\n"
+        '{"design_doc": "# LLM design\\n\\nDetailed markdown doc.", '
+        '"components": ['
+        '{"name": "Ingestor", "purpose": "Pull records", "interface": "ingest()"}, '
+        '{"name": "Ranker", "purpose": "Score records", "interface": "rank(list) -> list"}'
+        '], "risks": ["Ingestor could saturate the API."]}'
+    )
+    monkeypatch.setattr(architect_po, "_llm_call", lambda _prompt, timeout=60: canned)
+    out = architect_po.execute({"goal": "Build an anomaly pipeline", "constraints": ""})
+    names = [c["name"] for c in out["components"]]
+    assert names == ["Ingestor", "Ranker"]
+    assert "LLM design" in out["design_doc"]
+    assert out["risks"] == ["Ingestor could saturate the API."]
+
+
+def test_architect_falls_back_when_llm_returns_invalid_json(monkeypatch):
+    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: "sorry, here's no JSON for you")
+    out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    # Falls back to template — Parser is extracted by the regex heuristic.
+    assert "Parser" in [c["name"] for c in out["components"]]
+
+
+def test_architect_falls_back_when_llm_output_misses_required_fields(monkeypatch):
+    bad = '{"design_doc": "x", "components": [{"name": "NoInterface"}]}'
+    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: bad)
+    out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    # Template path kicks in; LLM output is discarded.
+    assert out["design_doc"].startswith("# Design")
+
+
+def test_architect_falls_back_when_llm_returns_none(monkeypatch):
+    monkeypatch.setattr(architect_po, "_llm_call", lambda _p, timeout=60: None)
+    out = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    assert "Parser" in [c["name"] for c in out["components"]]
+
+
+def test_dev_uses_llm_tasks_when_schema_valid(monkeypatch):
+    canned = (
+        '{"tasks": ['
+        '{"id": "impl-parser", "title": "Implement Parser", "depends_on": [], '
+        '"agent_prompt": "Create src/parser.py with parse(text) -> AST...", '
+        '"framework": "claude-code", "component": "Parser"},'
+        '{"id": "tests-parser", "title": "Tests for Parser", "depends_on": ["impl-parser"], '
+        '"agent_prompt": "Cover parse() happy path + edge cases.", '
+        '"framework": "claude-code", "component": "Parser"}'
+        ']}'
+    )
+    monkeypatch.setattr(dev_po, "_llm_call", lambda _p, timeout=60: canned)
+    out = dev_po.execute(
+        {
+            "components": [
+                {"name": "Parser", "purpose": "Parse", "interface": "parse()"}
+            ],
+            "design_doc": "# doc",
+        }
+    )
+    assert [t["id"] for t in out["tasks"]] == ["impl-parser", "tests-parser"]
+    assert "parse(text)" in out["tasks"][0]["agent_prompt"]
+
+
+def test_dev_falls_back_when_llm_references_unknown_component(monkeypatch):
+    """Schema guard rejects LLM outputs that invent components."""
+    canned = (
+        '{"tasks": [{"id": "impl-ghost", "title": "Implement Ghost", '
+        '"depends_on": [], "agent_prompt": "do it", "component": "Ghost"}]}'
+    )
+    monkeypatch.setattr(dev_po, "_llm_call", lambda _p, timeout=60: canned)
+    out = dev_po.execute(
+        {
+            "components": [{"name": "Parser", "purpose": "p", "interface": "i"}],
+            "design_doc": "",
+        }
+    )
+    # Template fallback produces impl-parser/tests-parser, not impl-ghost.
+    ids = [t["id"] for t in out["tasks"]]
+    assert ids == ["impl-parser", "tests-parser"]
+
+
+def test_llm_call_returns_none_without_api_key(monkeypatch):
+    """Safety check: no key → no call, no exception, None."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert architect_po._llm_call("anything") is None
+    assert dev_po._llm_call("anything") is None
+
+
+# ── Original review_po test (unchanged) ──────────────────────────────────────
+
+
 def test_review_prompt_embeds_design_doc():
     rev = review_po.execute(
         {

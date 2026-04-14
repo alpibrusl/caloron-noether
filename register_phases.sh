@@ -29,14 +29,16 @@ noether = sys.argv[2]
 
 specs = {
     "architect_po": {
-        "description": "Architect PO — decompose a goal into components, design doc, and risks",
+        "description": "Architect PO — decompose a goal into components, design doc, and risks (LLM-driven when ANTHROPIC_API_KEY is set; template fallback otherwise)",
         "input":  {"Record": [["goal", "Text"], ["constraints", "Text"]]},
         "output": {"Record": [["design_doc", "Text"], ["components", {"List": "Any"}], ["risks", {"List": "Text"}]]},
+        "effects": ["llm", "network", "non-deterministic"],
     },
     "dev_po": {
-        "description": "Dev PO — turn architect components into concrete agent tasks",
+        "description": "Dev PO — turn architect components into concrete agent tasks (LLM-driven when ANTHROPIC_API_KEY is set; template fallback otherwise)",
         "input":  {"Record": [["components", {"List": "Any"}], ["design_doc", "Text"], ["risks", {"List": "Text"}]]},
         "output": {"Record": [["design_doc", "Text"], ["components", {"List": "Any"}], ["risks", {"List": "Text"}], ["tasks", {"List": "Any"}]]},
+        "effects": ["llm", "network", "non-deterministic"],
     },
     "review_po": {
         "description": "Review PO — turn dev tasks into reviewer-assignable checks",
@@ -61,7 +63,7 @@ for name, meta in specs.items():
         "description": meta["description"],
         "input":  meta["input"],
         "output": meta["output"],
-        "effects": [],
+        "effects": meta.get("effects", []),
         "language": "python",
         "implementation": code_path.read_text(),
     }
