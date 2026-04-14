@@ -10,7 +10,12 @@ import pytest
 # Allow `import stages.phases…` regardless of how pytest is invoked.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stages.phases import architect_po, dev_po, review_po  # noqa: E402
+from stages.phases import (  # noqa: E402
+    architect_po,
+    dev_po,
+    phases_to_sprint_tasks,
+    review_po,
+)
 from stages.phases.phase_schemas import ArchitectOutput, Component  # noqa: E402
 
 # ── architect_po ─────────────────────────────────────────────────────────────
@@ -149,3 +154,81 @@ def test_review_prompt_embeds_design_doc():
         }
     )
     assert "SENTINEL-DESIGN-TOKEN" in rev["review_checks"][0]["agent_prompt"]
+
+
+def test_dev_carries_arch_fields_through():
+    arch = architect_po.execute({"goal": "Build a Parser", "constraints": "Linux only"})
+    dev = dev_po.execute({**arch, "sprint_id": "s1"})
+    # These must survive so review_po + flatten can consume them downstream.
+    assert dev["design_doc"] == arch["design_doc"]
+    assert dev["components"] == arch["components"]
+    assert dev["risks"] == arch["risks"]
+
+
+def test_review_preserves_tasks_and_design_doc():
+    arch = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    dev = dev_po.execute({**arch, "sprint_id": "s1"})
+    rev = review_po.execute({**dev, "framework": "claude-code"})
+    assert rev["design_doc"] == arch["design_doc"]
+    assert rev["tasks"] == dev["tasks"]
+
+
+# ── phases_to_sprint_tasks (terminal flatten) ────────────────────────────────
+
+
+def test_flatten_requires_tasks():
+    with pytest.raises(ValueError, match="non-empty"):
+        phases_to_sprint_tasks.execute({"tasks": [], "review_checks": [], "design_doc": ""})
+
+
+def test_flatten_merges_reviews_with_depends_on_wiring():
+    arch = architect_po.execute({"goal": "Build a Parser", "constraints": ""})
+    dev = dev_po.execute({**arch, "sprint_id": "s1"})
+    rev = review_po.execute({**dev, "framework": "claude-code"})
+    flat = phases_to_sprint_tasks.execute(rev)
+
+    ids = [t["id"] for t in flat["tasks"]]
+    # Dev tasks come first, review tasks after.
+    assert ids[: len(dev["tasks"])] == [t["id"] for t in dev["tasks"]]
+    review_tasks = flat["tasks"][len(dev["tasks"]) :]
+    assert len(review_tasks) == len(rev["review_checks"])
+    for rt, check in zip(review_tasks, rev["review_checks"], strict=True):
+        assert rt["depends_on"] == [check["reviews"]]
+        assert rt["id"] == check["id"]
+        assert rt["agent_prompt"] == check["agent_prompt"]
+
+
+def test_flatten_rejects_id_collisions():
+    with pytest.raises(ValueError, match="duplicate task id"):
+        phases_to_sprint_tasks.execute(
+            {
+                "tasks": [{"id": "shared", "title": "T"}],
+                "review_checks": [
+                    {
+                        "id": "shared",
+                        "reviews": "shared",
+                        "focus": "x",
+                        "agent_prompt": "p",
+                        "framework": "claude-code",
+                    }
+                ],
+                "design_doc": "",
+            }
+        )
+
+
+def test_full_cycle_with_flatten_is_orchestrator_compatible():
+    """End-to-end: the full graph's terminal output matches --graph's contract."""
+    arch = architect_po.execute(
+        {"goal": "Build a DataLoader and a ModelTrainer", "constraints": ""}
+    )
+    dev = dev_po.execute({**arch, "sprint_id": "e2e"})
+    rev = review_po.execute({**dev, "framework": "claude-code"})
+    final = phases_to_sprint_tasks.execute(rev)
+
+    assert set(final.keys()) == {"tasks"}
+    for task in final["tasks"]:
+        assert "id" in task
+        assert "title" in task
+        assert "depends_on" in task
+        assert "agent_prompt" in task

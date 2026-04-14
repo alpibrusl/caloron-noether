@@ -18,6 +18,11 @@
         "op": "Stage",
         "id": "REGISTER:review_po",
         "_desc": "Review PO — tasks+design_doc → reviewer-assignable checks"
+      },
+      {
+        "op": "Stage",
+        "id": "REGISTER:phases_to_sprint_tasks",
+        "_desc": "Terminal flatten — merge tasks + review_checks into single {tasks}"
       }
     ]
   }

@@ -237,9 +237,9 @@ register "architect_po" \
     "$STAGES_DIR/phases/architect_po.py"
 
 register "dev_po" \
-    "Dev PO — turn architect components into concrete agent tasks" \
-    '{"type": "Record", "fields": {"components": {"type": "List", "element": "Any"}, "sprint_id": "Text", "framework": "Text"}}' \
-    '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}}}' \
+    "Dev PO — turn architect components into concrete agent tasks (carries design_doc/risks through)" \
+    '{"type": "Record", "fields": {"components": {"type": "List", "element": "Any"}, "sprint_id": "Text", "framework": "Text", "design_doc": "Text", "risks": {"type": "List", "element": "Text"}}}' \
+    '{"type": "Record", "fields": {"design_doc": "Text", "components": {"type": "List", "element": "Any"}, "risks": {"type": "List", "element": "Text"}, "tasks": {"type": "List", "element": "Any"}}}' \
     '[{"effect": "Pure"}]' \
     "python3" \
     "$STAGES_DIR/phases/dev_po.py"
@@ -247,10 +247,18 @@ register "dev_po" \
 register "review_po" \
     "Review PO — turn dev tasks into reviewer-assignable checks against the design contract" \
     '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}, "design_doc": "Text", "framework": "Text"}}' \
-    '{"type": "Record", "fields": {"review_checks": {"type": "List", "element": "Any"}}}' \
+    '{"type": "Record", "fields": {"design_doc": "Text", "tasks": {"type": "List", "element": "Any"}, "review_checks": {"type": "List", "element": "Any"}}}' \
     '[{"effect": "Pure"}]' \
     "python3" \
     "$STAGES_DIR/phases/review_po.py"
+
+register "phases_to_sprint_tasks" \
+    "Terminal flatten — merge phase outputs (tasks + review_checks) into a single {tasks} list" \
+    '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}, "review_checks": {"type": "List", "element": "Any"}, "design_doc": "Text"}}' \
+    '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}}}' \
+    '[{"effect": "Pure"}]' \
+    "python3" \
+    "$STAGES_DIR/phases/phases_to_sprint_tasks.py"
 
 echo ""
 echo "Done. Now replace REGISTER:* placeholders in compositions/*.json:"

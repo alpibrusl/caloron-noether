@@ -62,7 +62,14 @@ def execute(input: dict) -> dict:
                 framework=framework,
             )
         )
-    return {"review_checks": [c.to_dict() for c in checks]}
+    # Preserve design_doc + the original task list so the terminal
+    # flatten stage can merge review checks back into a single tasks
+    # output without re-reading upstream state.
+    return {
+        "design_doc": design_doc,
+        "tasks": tasks,
+        "review_checks": [c.to_dict() for c in checks],
+    }
 
 
 if __name__ == "__main__":

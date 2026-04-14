@@ -71,7 +71,16 @@ def execute(input: dict) -> dict:
     tasks: list[DevTask] = []
     for c in components:
         tasks.extend(_tasks_for(c, framework))
-    return {"tasks": [t.to_dict() for t in tasks]}
+    # Pass through upstream architect fields so later phases and the
+    # flatten terminal stage can see the design_doc / risks. In Noether
+    # Sequential the stage return value replaces the input wholesale; any
+    # field we don't forward is lost.
+    return {
+        "design_doc": str(input.get("design_doc") or ""),
+        "components": raw_components,
+        "risks": list(input.get("risks") or []),
+        "tasks": [t.to_dict() for t in tasks],
+    }
 
 
 if __name__ == "__main__":
