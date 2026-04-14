@@ -75,30 +75,45 @@ FRAMEWORKS = {
         "api_key_flag": "--api-key",
     },
     "gemini-cli": {
+        # -y/--yolo auto-approves tool calls (file write, shell), required
+        # for non-interactive agentic runs. Without it, -p is one-shot Q&A.
         "cmd": "gemini",
-        "args": [],
+        "args": ["-y"],
         "prompt_flag": "-p",
         "api_key_env": "GOOGLE_API_KEY",
         "api_key_flag": None,  # gemini-cli uses env var
     },
     "aider": {
+        # --yes-always skips every confirmation prompt; aider edits files
+        # natively in --message mode, so no extra tool flag is needed.
         "cmd": "aider",
-        "args": ["--yes", "--no-auto-commits"],
+        "args": ["--yes-always", "--no-auto-commits"],
         "prompt_flag": "--message",
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": None,
     },
     "codex-cli": {
+        # Current codex CLI uses `exec --full-auto <prompt>` (positional).
+        # --full-auto is the preset for workspace-write sandbox + approval.
         "cmd": "codex",
-        "args": ["--approval-mode", "full-auto"],
-        "prompt_flag": "-p",
+        "args": ["exec", "--full-auto"],
+        "prompt_flag": "",  # prompt is positional
         "api_key_env": "OPENAI_API_KEY",
         "api_key_flag": None,
     },
     "open-code": {
+        # `opencode run <prompt>` ships with full tool access (build agent).
         "cmd": "opencode",
         "args": ["run"],
-        "prompt_flag": "",  # opencode run takes message as positional args
+        "prompt_flag": "",  # opencode run takes message as positional arg
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "api_key_flag": None,
+    },
+    "cursor-cli": {
+        # cursor-agent -p runs in print/headless mode with agent tools on.
+        "cmd": "cursor-agent",
+        "args": ["--output-format", "text"],
+        "prompt_flag": "-p",
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": None,
     },
@@ -116,7 +131,11 @@ def build_agent_command(framework: str, prompt: str) -> list[str]:
     if api_key and fw.get("api_key_flag"):
         cmd.extend([fw["api_key_flag"], api_key])
 
-    cmd.extend([fw["prompt_flag"], prompt])
+    if fw["prompt_flag"]:
+        cmd.extend([fw["prompt_flag"], prompt])
+    else:
+        # Prompt is a positional argument (codex exec, opencode run, …)
+        cmd.append(prompt)
     return cmd
 
 

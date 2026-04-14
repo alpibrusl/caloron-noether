@@ -176,14 +176,15 @@ def sprint(
             hint="Make sure caloron-noether package is installed correctly",
         )
 
-    # Warn if the selected framework is known to be claude-code-only in practice.
-    # Other frameworks run in one-shot mode without tool access — see issue #3.
+    # Non-claude frameworks are wired up with agentic flags (see FRAMEWORKS
+    # in orchestrator.py), but integration is less battle-tested than
+    # claude-code. Surface a single-line note so failures are easier to
+    # attribute.
     if project.framework and project.framework != "claude-code":
         sys.stderr.write(
-            f"WARNING: framework '{project.framework}' is experimental in caloron — "
-            "only 'claude-code' currently runs in agentic mode with file/shell tool access. "
-            "Non-claude frameworks may produce plans and reviews but no actual code. "
-            "See https://github.com/alpibrusl/caloron-noether/issues/3\n"
+            f"Note: framework '{project.framework}' uses agentic/auto-approval mode. "
+            "If you see 'no JSON' or empty diffs, confirm the CLI is authenticated "
+            "and on $PATH (see https://github.com/alpibrusl/caloron-noether/issues/3).\n"
         )
 
     # Build environment for the orchestrator
