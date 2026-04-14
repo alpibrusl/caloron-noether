@@ -273,6 +273,21 @@ def test_call_llm_respects_explicit_provider_override(monkeypatch):
     assert calls == ["claude"]
 
 
+def test_call_llm_skip_cli_env_var_bypasses_subprocess_providers(monkeypatch):
+    """CALORON_LLM_SKIP_CLI=1 in sandbox envs short-circuits CLI attempts."""
+    from stages.phases import _llm
+
+    calls: list = []
+    monkeypatch.setenv("CALORON_LLM_SKIP_CLI", "1")
+    monkeypatch.delenv("CALORON_LLM_PROVIDER", raising=False)
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: calls.append("cli") or "x")
+    monkeypatch.setattr(
+        _llm, "_anthropic_api", lambda p, t: calls.append("api") or "via api"
+    )
+    assert _llm.call_llm("hi") == "via api"
+    assert "cli" not in calls
+
+
 def test_call_llm_falls_through_when_first_provider_returns_none(monkeypatch):
     from stages.phases import _llm
 

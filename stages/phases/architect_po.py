@@ -12,6 +12,8 @@ concatenates _llm.py into this file's implementation at registration
 time so the stage stays hermetic when executed inside Noether.
 """
 
+from __future__ import annotations
+
 import json as _json
 import re
 

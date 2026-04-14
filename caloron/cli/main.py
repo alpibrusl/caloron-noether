@@ -65,17 +65,26 @@ def _run_plan_graph(graph_path: Path, goal: str) -> list[dict]:
             hint="Install Noether v0.3.0+ (cargo install noether-cli) or drop --graph",
         )
 
-    stdin_payload = json.dumps({"goal": goal, "constraints": ""})
+    # Noether's nix-sandboxed stages can't reach the user's subscription
+    # CLI auth state, so subprocess-based LLM providers stall and get
+    # killed by the 30s stage timeout. Skip the CLI path by default when
+    # we invoke the graph from here — API keys and the template fallback
+    # still work. Users who want to force a specific provider can set
+    # CALORON_LLM_PROVIDER themselves.
+    sub_env = os.environ.copy()
+    sub_env.setdefault("CALORON_LLM_SKIP_CLI", "1")
+
+    input_payload = json.dumps({"goal": goal, "constraints": ""})
     try:
         proc = subprocess.run(
-            ["noether", "run", str(graph_path)],
-            input=stdin_payload,
+            ["noether", "run", str(graph_path), "--input", input_payload],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=300,
+            env=sub_env,
         )
     except subprocess.TimeoutExpired as e:
-        raise PreconditionError(f"noether run timed out after 120s: {e}") from e
+        raise PreconditionError(f"noether run timed out after 300s: {e}") from e
 
     if proc.returncode != 0:
         raise PreconditionError(

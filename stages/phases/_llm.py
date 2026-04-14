@@ -52,14 +52,20 @@ _DEFAULT_MODELS = {
 
 
 def _subproc(argv: list[str], prompt: str, timeout: int) -> str | None:
-    """Run a CLI agent in print/headless mode; return stdout or None on failure."""
+    """Run a CLI agent in print/headless mode; return stdout or None on failure.
+
+    Timeout is capped at 25s to stay under Noether's default 30s stage
+    kill — inside the nix sandbox a subscription CLI often stalls (auth
+    state isn't mounted) and we'd rather fall through to an HTTPS
+    provider than get killed by the runner.
+    """
     try:
         r = subprocess.run(
             argv,
             input=prompt,
             capture_output=True,
             text=True,
-            timeout=timeout,
+            timeout=min(timeout, 25),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return None
@@ -202,10 +208,27 @@ _DISPATCH = {
 }
 
 
+_CLI_PROVIDERS = {"claude-cli", "gemini-cli", "cursor-cli", "opencode"}
+
+
 def call_llm(prompt: str, timeout: int = 120) -> str | None:
-    """Try every configured provider in order; return the first non-empty result."""
+    """Try every configured provider in order; return the first non-empty result.
+
+    Set ``CALORON_LLM_SKIP_CLI=1`` to skip subprocess-based providers in
+    the auto-chain. Intended for sandboxed environments (like Noether's
+    nix executor) where CLI auth state isn't mounted and subprocess
+    calls stall. Explicit ``CALORON_LLM_PROVIDER`` always wins.
+    """
     override = os.environ.get("CALORON_LLM_PROVIDER", "").strip()
-    providers = [override] if override else list(_PROVIDER_ORDER)
+    skip_cli = os.environ.get("CALORON_LLM_SKIP_CLI", "").strip() in ("1", "true", "yes")
+
+    if override:
+        providers = [override]
+    elif skip_cli:
+        providers = [p for p in _PROVIDER_ORDER if p not in _CLI_PROVIDERS]
+    else:
+        providers = list(_PROVIDER_ORDER)
+
     for name in providers:
         fn_name = _DISPATCH.get(name)
         if fn_name is None:
