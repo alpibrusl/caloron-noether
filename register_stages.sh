@@ -227,6 +227,23 @@ register "execute_actions" \
     "python3" \
     "$STAGES_DIR/dag/execute_actions.py"
 
+# === Phase stages (multi-role sprints) ===
+register "architect_po" \
+    "Architect PO — decompose a goal into components, design doc, and risks" \
+    '{"type": "Record", "fields": {"goal": "Text", "constraints": "Text"}}' \
+    '{"type": "Record", "fields": {"design_doc": "Text", "components": {"type": "List", "element": "Any"}, "risks": {"type": "List", "element": "Text"}}}' \
+    '[{"effect": "Llm"}, {"effect": "NonDeterministic"}]' \
+    "python3" \
+    "$STAGES_DIR/phases/architect_po.py"
+
+register "dev_po" \
+    "Dev PO — turn architect components into concrete agent tasks" \
+    '{"type": "Record", "fields": {"components": {"type": "List", "element": "Any"}, "sprint_id": "Text", "framework": "Text"}}' \
+    '{"type": "Record", "fields": {"tasks": {"type": "List", "element": "Any"}}}' \
+    '[{"effect": "Pure"}]' \
+    "python3" \
+    "$STAGES_DIR/phases/dev_po.py"
+
 echo ""
 echo "Done. Now replace REGISTER:* placeholders in compositions/*.json:"
 echo ""
