@@ -16,7 +16,15 @@ from stages.phases import (  # noqa: E402
     phases_to_sprint_tasks,
     review_po,
 )
-from stages.phases.phase_schemas import ArchitectOutput, Component  # noqa: E402
+
+
+def _validate_arch_shape(out: dict) -> None:
+    """Assert the architect output matches the phase-boundary schema."""
+    for key in ("design_doc", "components", "risks"):
+        assert key in out, f"missing {key}"
+    assert isinstance(out["components"], list) and out["components"], "need components"
+    for c in out["components"]:
+        assert {"name", "purpose", "interface"} <= c.keys(), c
 
 # ── architect_po ─────────────────────────────────────────────────────────────
 
@@ -45,24 +53,25 @@ def test_architect_falls_back_to_core_component():
     assert out["risks"]  # single-component risk was surfaced
 
 
-def test_architect_output_roundtrips_through_schema():
+def test_architect_output_matches_phase_boundary_schema():
     out = architect_po.execute(
         {"goal": "Build a Parser and Validator", "constraints": "Linux only"}
     )
-    ArchitectOutput.from_dict(out)  # raises on schema drift
+    _validate_arch_shape(out)
 
 
 # ── dev_po ───────────────────────────────────────────────────────────────────
 
 
 def _arch_fixture() -> dict:
-    return ArchitectOutput(
-        design_doc="# doc",
-        components=[
-            Component(name="Parser", purpose="Parse input", interface="parse(s)->AST"),
-            Component(name="Validator", purpose="Validate", interface="validate(ast)->bool"),
+    return {
+        "design_doc": "# doc",
+        "components": [
+            {"name": "Parser", "purpose": "Parse input", "interface": "parse(s)->AST"},
+            {"name": "Validator", "purpose": "Validate", "interface": "validate(ast)->bool"},
         ],
-    ).to_dict()
+        "risks": [],
+    }
 
 
 def test_dev_emits_impl_and_tests_per_component():

@@ -5,3 +5,4 @@ __pycache__/
 stage-specs/
 dist/
 .cli/
+compositions/full_cycle_resolved.json

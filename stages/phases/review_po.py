@@ -1,29 +1,14 @@
 #!/usr/bin/env python3
 """Review PO — turn dev tasks into reviewer-assignable checks.
 
-Input:  { tasks: List[Record], design_doc: Text, framework: Text }
-Output: { review_checks: List[Record] }
+Input:  { tasks: List[Record], design_doc: Text, framework?: Text }
+Output: { design_doc: Text, tasks: List[Record], review_checks: List[Record] }
 
-Effects: [Pure]
-
-For each implementation task emitted by dev_po, schedules a review
-check that depends on it. Test tasks get a separate "test-coverage"
-review focused on whether the tests match the design contract. The
-review prompts reference the design_doc so reviewers can compare
-against the architect's original intent — not just whether the code
-runs, but whether it's the *right* code.
+Preserves design_doc + tasks so the terminal flatten stage can merge
+review checks back into a single tasks list without re-reading upstream
+state. Stage is hermetic; everything needed at runtime lives in this file.
 """
 
-from __future__ import annotations
-
-import json
-import os
-import sys
-from pathlib import Path
-
-_repo_root = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_repo_root))
-from stages.phases.phase_schemas import ReviewCheck  # noqa: E402
 
 
 def _prompt_for(task: dict, design_doc: str, focus: str) -> str:
@@ -39,14 +24,13 @@ def _prompt_for(task: dict, design_doc: str, focus: str) -> str:
 
 
 def execute(input: dict) -> dict:
-    """Stage entry point."""
     tasks = input.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         raise ValueError("review_po: 'tasks' must be a non-empty list")
     design_doc = str(input.get("design_doc") or "")
     framework = str(input.get("framework") or "claude-code")
 
-    checks: list[ReviewCheck] = []
+    checks = []
     for t in tasks:
         tid = t.get("id")
         if not tid:
@@ -54,24 +38,17 @@ def execute(input: dict) -> dict:
         is_tests = tid.startswith("tests-")
         focus = "test coverage vs. design contract" if is_tests else "correctness vs. interface"
         checks.append(
-            ReviewCheck(
-                id=f"review-{tid}",
-                reviews=tid,
-                focus=focus,
-                agent_prompt=_prompt_for(t, design_doc, focus),
-                framework=framework,
-            )
+            {
+                "id": f"review-{tid}",
+                "reviews": tid,
+                "focus": focus,
+                "agent_prompt": _prompt_for(t, design_doc, focus),
+                "framework": framework,
+            }
         )
-    # Preserve design_doc + the original task list so the terminal
-    # flatten stage can merge review checks back into a single tasks
-    # output without re-reading upstream state.
     return {
         "design_doc": design_doc,
         "tasks": tasks,
-        "review_checks": [c.to_dict() for c in checks],
+        "review_checks": checks,
     }
 
-
-if __name__ == "__main__":
-    data = json.load(sys.stdin) if not os.isatty(0) else {}
-    json.dump(execute(data), sys.stdout)
