@@ -91,7 +91,11 @@ caloron projects list | switch | delete              # multi-project management
 caloron config get|set <key> [value]                 # per-project settings
 ```
 
-All commands accept `--output text|json|table`. Supports 6 agent frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`.
+All commands accept `--output text|json|table`. The framework selected at `caloron init --framework` is propagated to the PO, HR, and reviewer agents. Supported frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`. Non-claude frameworks use their agentic / auto-approval mode (`-y` for Gemini, `--yes-always` for Aider, `exec --full-auto` for Codex, `-p` for cursor-agent); make sure the corresponding CLI is authenticated and on `$PATH`.
+
+### Sandbox
+
+On Linux, `caloron sprint` runs each agent inside a `bwrap` (bubblewrap) sandbox. On macOS and other systems where `bwrap` is unavailable, it falls back to a no-op passthrough script so `pip install caloron-alpibru` works out of the box. Override with `SANDBOX=/path/to/your-sandbox.sh` if you need custom isolation.
 
 ## Project Structure
 
@@ -117,7 +121,7 @@ stages/               Noether Python stages (stdin JSON → stdout JSON)
   kickoff/            Repo context, DAG generation
 compositions/         Noether composition graphs (JSON)
 shell/                Thin Rust binary (axum HTTP server)
-scripts/              Sandbox (bubblewrap)
+scripts/              Sandbox (bubblewrap on Linux, passthrough on macOS/other)
 deploy/               Docker Compose + Kubernetes Helm chart
 demo/                 Asciinema recording script
 ```
