@@ -24,24 +24,37 @@ caloron-shell (~200 lines Rust, axum)
 
 All business logic is in Noether stages (Python). The shell only manages processes and HTTP.
 
+## Prerequisites
+
+Caloron-Noether is a set of stages and compositions that run on top of [**Noether**](https://github.com/alpibrusl/noether) (v0.3.0+). You need both the `noether` CLI and `noether-scheduler` on your `PATH`.
+
+```bash
+cargo install noether-cli noether-scheduler
+# or grab prebuilt binaries: https://github.com/alpibrusl/noether/releases/latest
+```
+
+See the [Noether docs](https://alpibrusl.github.io/noether/) for deeper configuration, and the [Scheduler guide](https://alpibrusl.github.io/noether/guides/scheduler/) for cron-driven compositions.
+
 ## Setup
 
 ```bash
-# 1. Build Noether CLI
-cd ../noether   # https://github.com/alpibrusl/noether && cargo build -p noether-cli
-export PATH="$PWD/target/debug:$PATH"
+# 1. Verify noether is installed
+noether --version
+noether-scheduler --version
 
-# 2. Register custom stages
-cd ../caloron-noether
+# 2. (Optional) Point at the hosted stage registry
+export NOETHER_REGISTRY=https://registry.alpibru.com
+
+# 3. Register custom stages
 ./register_stages.sh
 
-# 3. Build the shell
+# 4. Build the shell
 cargo build -p caloron-shell
 
-# 4. Start the shell (heartbeat + spawn server)
+# 5. Start the shell (heartbeat + spawn server)
 CALORON_SHELL_PORT=7710 ./target/debug/caloron-shell
 
-# 5. Start the scheduler (drives sprint ticks)
+# 6. Start the scheduler (drives sprint ticks + weekly retro)
 noether-scheduler --config scheduler.json
 ```
 
@@ -62,15 +75,23 @@ Full docs: [docs/](docs/) — build locally with `mkdocs serve`.
 
 All stages start as Python. When a stage meets all four criteria (generality, hot path, stable schema, worth the lines), it can be promoted to Rust via `InlineRegistry` — zero graph changes needed. See `context/inline-stages.md`.
 
-## Quick Sprint
+## CLI
+
+Installing the package (`pip install caloron-noether`) exposes a `caloron` ACLI-compliant command:
 
 ```bash
-# Run a full autonomous sprint
-cd orchestrator
-python3 orchestrator.py "Build a hotel rate anomaly detector with tests"
+caloron init my-project --backend noether            # create a project
+caloron sprint "Build a hotel rate anomaly detector" # run an autonomous sprint
+caloron status                                       # active project + last sprint
+caloron history --limit 10                           # past sprints
+caloron show 5                                       # full retro for sprint #5
+caloron metrics --output json                        # aggregated KPIs
+caloron agents                                       # agent profiles in this project
+caloron projects list | switch | delete              # multi-project management
+caloron config get|set <key> [value]                 # per-project settings
 ```
 
-Supports 6 frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`
+All commands accept `--output text|json|table`. Supports 6 agent frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`.
 
 ## Project Structure
 

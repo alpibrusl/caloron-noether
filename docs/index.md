@@ -42,27 +42,51 @@ graph TB
 
 ## Quick Start
 
-```bash
-# 1. Build Noether CLI
-cd ../noether   # https://github.com/alpibrusl/noether && cargo build -p noether-cli
-export PATH="$PWD/target/debug:$PATH"
+Caloron-Noether requires [Noether](https://alpibrusl.github.io/noether/) v0.3.0+ — both `noether` and `noether-scheduler` on `PATH`.
 
-# 2. Register custom stages
+```bash
+# 1. Install Noether (CLI + scheduler)
+cargo install noether-cli noether-scheduler
+# or grab prebuilt binaries: https://github.com/alpibrusl/noether/releases/latest
+
+# 2. (Optional) Use the hosted stage registry
+export NOETHER_REGISTRY=https://registry.alpibru.com
+
+# 3. Register custom stages
 ./register_stages.sh
 
-# 3. Build the shell
+# 4. Build the shell
 cargo build -p caloron-shell
 
-# 4. Start the shell
+# 5. Start the shell
 ./target/debug/caloron-shell &
 
-# 5. Run a sprint tick manually
+# 6. Run a sprint tick manually
 noether run compositions/sprint_tick.json \
   --input '{"sprint_id": "test", "repo": "owner/repo", "stall_threshold_m": 20}'
 
-# 6. Or start the scheduler for continuous operation
+# 7. Or start the scheduler for continuous operation
+#    (see https://alpibrusl.github.io/noether/guides/scheduler/)
 noether-scheduler --config scheduler.json
 ```
+
+## CLI
+
+`pip install caloron-noether` exposes the `caloron` command — an ACLI-compliant frontend for project, sprint, and metrics management:
+
+```bash
+caloron init my-project --backend noether
+caloron sprint "Build a hotel rate anomaly detector"
+caloron status
+caloron history --limit 10
+caloron show 5
+caloron metrics --output json
+caloron agents
+caloron projects list | switch | delete
+caloron config get|set <key> [value]
+```
+
+All commands support `--output text|json|table`.
 
 ## Stage Overview
 
