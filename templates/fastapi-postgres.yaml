@@ -8,7 +8,8 @@ description: Async FastAPI app with SQLAlchemy, Alembic, and PostgreSQL
 # Matching rules — HR Agent uses these to auto-select
 match:
   skills: [rest-api-development, sql-database]
-  keywords: [fastapi, postgres, database, sqlalchemy, api]
+  keywords: [fastapi, postgres, sqlalchemy, alembic]
+  anti_keywords: [cli, command-line, "command line", argparse, click]
 
 # Dependencies
 dependencies:

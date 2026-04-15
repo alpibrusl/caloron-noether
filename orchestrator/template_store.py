@@ -18,8 +18,9 @@ TEMPLATES = {
     # ── Python / FastAPI ──────────────────────────────────────────────
     "fastapi": {
         "name": "FastAPI Application",
-        "match_skills": ["rest-api-development", "python-development"],
-        "match_keywords": ["fastapi", "api", "endpoint", "rest"],
+        "match_skills": ["rest-api-development"],
+        "match_keywords": ["fastapi", "rest api", "http endpoint", "web service"],
+        "anti_keywords": ["cli", "command-line", "command line", "argparse", "click"],
         "files": {
             "pyproject.toml": """[project]
 name = "app"
@@ -124,7 +125,8 @@ CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
     "fastapi-postgres": {
         "name": "FastAPI + PostgreSQL",
         "match_skills": ["rest-api-development", "sql-database"],
-        "match_keywords": ["fastapi", "postgres", "database", "sqlalchemy"],
+        "match_keywords": ["fastapi", "postgres", "sqlalchemy", "alembic"],
+        "anti_keywords": ["cli", "command-line", "command line", "argparse", "click"],
         "files": {
             "pyproject.toml": """[project]
 name = "app"
@@ -594,6 +596,7 @@ def load_yaml_templates(templates_dir: str = TEMPLATES_DIR) -> dict:
                 "name": data.get("name", template_id),
                 "match_skills": match.get("skills", []),
                 "match_keywords": match.get("keywords", []),
+                "anti_keywords": match.get("anti_keywords", []),
                 "files": files,
             }
         except Exception as e:
@@ -712,6 +715,12 @@ def scaffold_project(worktree: str, skills: list[str], task_text: str,
         for keyword in template.get("match_keywords", []):
             if keyword in text:
                 score += 1
+        # Anti-keywords: if the goal signals the wrong shape of project
+        # (e.g. "cli" when we're scoring a FastAPI template), heavily
+        # penalise so the template loses to more specific matches.
+        for anti in template.get("anti_keywords", []):
+            if anti in text:
+                score -= 3
         if score > best_score:
             best_score = score
             best_match = template_id

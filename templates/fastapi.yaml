@@ -2,8 +2,9 @@ name: FastAPI Application
 description: Lightweight FastAPI app with Pydantic, ruff, pytest
 
 match:
-  skills: [rest-api-development, python-development]
-  keywords: [fastapi, api, endpoint, rest, http]
+  skills: [rest-api-development]
+  keywords: [fastapi, "rest api", "http endpoint", "web service"]
+  anti_keywords: [cli, command-line, "command line", argparse, click]
 
 files:
   pyproject.toml: |

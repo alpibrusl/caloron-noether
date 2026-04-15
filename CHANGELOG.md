@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.3.1 (2026-04-15)
+
+Second-round field-report fixes on top of v0.3.0. po_context propagation
+and the other v0.3.0 items were confirmed working in production; the
+remaining three issues are about PO intelligence rather than broken
+plumbing — addressed here.
+
+### Fixed
+
+- **PO prompt timed out around sprint 5-6**. A field report hit 9-minute
+  PO generation at sprint 3 with only 300s headroom. Two-part fix:
+  - ``build_po_context`` now uses a two-tier compression: the most
+    recent 2 sprints get full blocker lists; everything before that
+    folds into an aggregate (total tasks, completion rate, recurring
+    blocker themes surfaced at ≥2 occurrences). Prompt size stops
+    growing linearly with sprint count.
+  - ``--po-timeout auto`` / ``PO_TIMEOUT=auto`` scales with sprint
+    count: 300s base + 60s per prior sprint, capped at 900s. Users
+    who don't want the cap can still pass an explicit integer.
+- **PO decomposed implementation goals into test tasks**. When the
+  sprint goal enumerated specific fixes, the PO kept producing the
+  generic "impl + tests" two-task split, which was the #1 source of
+  wasted cycles in the field report. Prompt rewritten to read the
+  goal's structure: if it enumerates N items, generate N tasks tied
+  to those items; classify intent (implement / test-only / refactor)
+  before deciding what shape of task to emit. "Keep to 2-3 tasks"
+  removed. Worked examples cover both bug-fix and test-coverage goals.
+- **FastAPI scaffold triggered on CLI projects**. Generic keywords
+  like ``api`` and ``endpoint`` were enough to pick the FastAPI
+  template for any goal that happened to mention APIs — including
+  CLI tools consuming an external API. Keywords tightened to
+  specific phrases (``fastapi``, ``rest api``, ``http endpoint``,
+  ``web service``). New ``anti_keywords`` template field penalises
+  (-3) web scaffolds when the goal signals CLI shape (``cli``,
+  ``argparse``, ``click``, ``command-line``). Both the Python
+  built-in templates and the YAML user-facing templates updated.
+
+### Added
+
+- ``anti_keywords`` field on templates (built-in + YAML) to encode
+  "this template should lose when the goal signals a different
+  project shape."
+- ``auto_po_timeout(sprint_count)`` helper + ``PO_TIMEOUT=auto`` env
+  value + ``--po-timeout auto`` CLI value for dynamic scaling.
+- Context-compression test coverage (``build_po_context`` with 5
+  sprints asserts older ones are folded into aggregates; recurring
+  themes section appears when blockers repeat; auto-timeout scales
+  and caps correctly).
+- Scaffold-selection test coverage (CLI goals don't pick FastAPI;
+  FastAPI goals still pick FastAPI; "mentions API" in a CLI goal
+  doesn't trigger FastAPI).
+
+### Carried-forward from 0.3.0 (confirmed working in field)
+
+po_context propagation, reviewer framework inheritance, Gitea
+preflight, --debug / --po-timeout / --skip-gitea-check flags, broader
+CLAUDE.md scope, force-merge escalation — all verified in production
+per the field report.
+
 ## 0.3.0 (2026-04-15)
 
 Addresses seven issues surfaced by two field reports from teams running

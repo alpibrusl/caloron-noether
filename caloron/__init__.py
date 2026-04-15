@@ -3,7 +3,7 @@
 Run sprints, manage projects, track metrics across agent versions.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from caloron.metrics.collector import MetricsCollector
 from caloron.project.store import Project, ProjectStore

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "caloron-alpibru"
-version = "0.3.0"
+version = "0.3.1"
 description = "Autonomous AI sprint orchestration — agents that ship real code via Git. (Import as `caloron`.)"
 readme = "README.md"
 license = "EUPL-1.2"

@@ -80,28 +80,59 @@ def test_build_po_context_surfaces_last_sprint_kpis(orchestrator_module):
         "improvements": [],
     }
     ctx = orchestrator_module.build_po_context(learnings)
-    assert "Recent sprints" in ctx
+    # With a single prior sprint, nothing is older-than-window; it sits
+    # in the "last N in detail" section directly.
+    assert "in detail" in ctx
     assert "sprint-1" in ctx
     assert "3/4 tasks" in ctx
     # The blocker must survive so PO sprint-2 prompt can address it.
     assert "CLAUDE.md scope" in ctx
 
 
-def test_build_po_context_carries_three_sprints(orchestrator_module):
+def test_build_po_context_compresses_older_sprints(orchestrator_module):
+    """Two-tier compression: last 2 detailed, earlier ones aggregated.
+
+    The field report at sprint 3 had the PO already at ~9 min because
+    every prior sprint's full blocker list was appended verbatim. This
+    test proves the detailed window is bounded and older sprints fold
+    into an aggregate summary.
+    """
     learnings = {
         "sprints": [
             {"sprint_id": f"sprint-{i}", "total": 3, "completed": i, "avg_clarity": 5.0,
-             "supervisor_events": 0, "blockers": []}
+             "supervisor_events": 0,
+             "blockers": [f"blocker-from-sprint-{i}"]}
             for i in range(1, 6)  # five sprints
         ],
         "improvements": [],
     }
     ctx = orchestrator_module.build_po_context(learnings)
-    # Should show the last 3, not the first 3.
-    assert "sprint-3" in ctx
+    # Detailed window: last 2.
     assert "sprint-4" in ctx
     assert "sprint-5" in ctx
-    assert "sprint-1" not in ctx
+    # Aggregate header for the older 3.
+    assert "3 earlier sprint(s) compressed" in ctx
+    # Older sprint *ids* don't appear individually — that's the compression.
+    assert "sprint-1:" not in ctx
+    assert "sprint-2:" not in ctx
+    assert "sprint-3:" not in ctx
+
+
+def test_build_po_context_surfaces_recurring_themes(orchestrator_module):
+    """Blockers that repeat across older sprints become a themes section."""
+    learnings = {
+        "sprints": [
+            {"sprint_id": f"sprint-{i}", "total": 1, "completed": 1, "avg_clarity": 5,
+             "supervisor_events": 0,
+             "blockers": ["CLAUDE.md scope blocked writing pyproject.toml"]}
+            for i in range(1, 6)
+        ],
+        "improvements": [],
+    }
+    ctx = orchestrator_module.build_po_context(learnings)
+    assert "Recurring themes" in ctx
+    # Count of recurrences in the older-sprints bucket (first 3 of 5).
+    assert "(3×)" in ctx
 
 
 def test_build_po_context_escalates_force_merged(orchestrator_module):
@@ -130,6 +161,17 @@ def test_build_po_context_escalates_force_merged(orchestrator_module):
     assert "missing test for concurrent writes" in ctx
     # Mundane blocker lands in the regular section — not escalated.
     assert "some mundane blocker" in ctx
+
+
+def test_auto_po_timeout_scales_with_sprint_count(orchestrator_module):
+    """Field report: fixed 300s ceiling will time out at sprint 5-6 once
+    context grows. auto scales 300 + 60*sprint_count, capped at 900."""
+    assert orchestrator_module.auto_po_timeout(0) == 300
+    assert orchestrator_module.auto_po_timeout(1) == 360
+    assert orchestrator_module.auto_po_timeout(5) == 600
+    assert orchestrator_module.auto_po_timeout(10) == 900
+    # Cap holds — doesn't runaway at high counts.
+    assert orchestrator_module.auto_po_timeout(100) == 900
 
 
 def test_build_po_context_carries_improvements(orchestrator_module):

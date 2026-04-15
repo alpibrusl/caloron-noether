@@ -47,8 +47,11 @@ SANDBOX = os.environ.get("SANDBOX", str(Path(__file__).parent.parent.parent / "s
 WORK = os.environ.get("WORK", "/tmp/caloron-full-loop")
 AGENT_TIMEOUT_S = int(os.environ.get("AGENT_TIMEOUT", "180"))  # 3 minutes
 # PO agent's prompt grows with accumulated learnings, so it needs a
-# bigger budget than per-task agents. Override with PO_TIMEOUT_S.
-PO_TIMEOUT_S = int(os.environ.get("PO_TIMEOUT", "300"))  # 5 minutes default
+# bigger budget than per-task agents. Override with PO_TIMEOUT; use
+# "auto" to scale with the number of prior sprints via auto_po_timeout().
+_PO_TIMEOUT_ENV = os.environ.get("PO_TIMEOUT", "300").strip().lower()
+PO_TIMEOUT_AUTO = _PO_TIMEOUT_ENV == "auto"
+PO_TIMEOUT_S = 300 if PO_TIMEOUT_AUTO else int(_PO_TIMEOUT_ENV)
 MAX_RETRIES = 2
 LEARNINGS_FILE = os.path.join(os.environ.get("WORK", "/tmp/caloron-full-loop"), "learnings.json")
 
@@ -672,27 +675,60 @@ def save_learnings(learnings: dict):
     Path(LEARNINGS_FILE).write_text(json.dumps(learnings, indent=2))
 
 
+_PO_CONTEXT_DETAILED_WINDOW = 2  # Last N sprints shown with full blocker lists
+
+
 def build_po_context(learnings: dict) -> str:
     """Build context from previous sprints for the PO Agent.
 
-    Widened from the original single-last-sprint summary to include:
-    - KPIs from up to the last 3 sprints (trend visible)
-    - Accumulated improvements list
-    - All blockers from the last sprint (not just the tail 3) since those
-      are the concrete things to address next sprint
-    - Force-merge warnings surfaced prominently, since they represent
-      unresolved review feedback that hit the cycle cap
+    Uses a two-tier compression to prevent unbounded prompt growth —
+    field report at sprint 3 showed the PO already at 9 min generation
+    time and headed for PO_TIMEOUT at sprint 5-6:
+
+    - The most recent ``_PO_CONTEXT_DETAILED_WINDOW`` sprints get full
+      blocker lists + KPIs.
+    - Sprints before that window get rolled into an aggregate summary:
+      total tasks, completion rate, recurring blocker themes (deduped).
+    - Force-merged blockers stay verbatim regardless of age since they
+      represent unresolved technical debt.
     """
     if not learnings.get("sprints"):
         return ""
 
     sprints = learnings["sprints"]
+    detailed = sprints[-_PO_CONTEXT_DETAILED_WINDOW:]
+    older = sprints[:-_PO_CONTEXT_DETAILED_WINDOW] if len(sprints) > _PO_CONTEXT_DETAILED_WINDOW else []
+
     ctx = "\n## Learnings from Previous Sprints\n\n"
 
-    # Trend across up to last 3 sprints.
-    recent = sprints[-3:]
-    ctx += f"Recent sprints ({len(recent)} of {len(sprints)} total):\n"
-    for s in recent:
+    # Aggregate summary of older sprints (compressed to prevent growth).
+    if older:
+        total = sum(s.get("total", 0) for s in older)
+        completed = sum(s.get("completed", 0) for s in older)
+        rate = (completed / total * 100) if total else 0
+        ctx += (
+            f"Historical ({len(older)} earlier sprint(s) compressed): "
+            f"{completed}/{total} tasks completed ({rate:.0f}%). "
+        )
+        # Dedup + surface recurring blocker themes across older sprints.
+        themes: dict[str, int] = {}
+        for s in older:
+            for b in s.get("blockers", []):
+                # First 60 chars is enough to cluster; full text re-appears
+                # in the detailed window if it was also recent.
+                key = b[:60].strip().lower()
+                themes[key] = themes.get(key, 0) + 1
+        recurring = sorted(themes.items(), key=lambda kv: -kv[1])[:3]
+        recurring = [(k, n) for k, n in recurring if n >= 2]
+        if recurring:
+            ctx += "Recurring themes:\n"
+            for theme, count in recurring:
+                ctx += f"  - ({count}×) {theme}\n"
+        ctx += "\n"
+
+    # Detailed window.
+    ctx += f"Last {len(detailed)} sprint(s) in detail:\n"
+    for s in detailed:
         ctx += (
             f"- {s.get('sprint_id', '?')}: "
             f"{s.get('completed', 0)}/{s.get('total', 0)} tasks, "
@@ -729,6 +765,17 @@ def build_po_context(learnings: dict) -> str:
         ctx += "\nAddress these in task specifications.\n"
 
     return ctx
+
+
+def auto_po_timeout(sprint_count: int) -> int:
+    """Scale the PO timeout with accumulated history.
+
+    Field report: fixed 300s ceiling was fine at sprint 1-2 but at
+    sprint 3 the PO already took ~9 minutes. Formula: 300s base + 60s
+    per prior sprint, capped at 900s (15 min) so runaway runs still
+    get killed.
+    """
+    return min(900, 300 + 60 * max(0, sprint_count))
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -840,31 +887,73 @@ def main():
 
     print("--- Step 1: PO Agent ---" if not _skip_po else "--- Skipping PO — tasks precomputed ---")
     available_frameworks = ", ".join(FRAMEWORKS.keys())
-    po_prompt = f"""You are a Product Owner. Goal: {goal}
+    po_prompt = f"""You are a Product Owner breaking a sprint goal into concrete agent tasks.
+
+GOAL (read carefully and literally):
+{goal}
 {po_context}
+How to decompose:
+
+1. Read the goal as an ordered list of deliverables. If it explicitly
+   enumerates N items (bugs to fix, features to add, files to touch),
+   produce N tasks — one per item — not a fixed 2-3.
+2. Classify the goal's intent before generating tasks:
+   - "implement / build / create / add / fix" → implementation tasks
+     that create or modify src/ (plus one test task only if the changes
+     introduce new behaviour that needs coverage and the goal did not
+     already list test work).
+   - "test / cover / add tests for" → test-only tasks that exercise
+     existing code; do NOT inject implementation work that wasn't asked
+     for.
+   - "refactor / clean up / simplify" → refactor tasks preserving
+     behaviour; tests already exist and only change if behaviour does.
+   - Mixed goals → mirror the structure of the goal.
+3. If the goal lists bullet-pointed fixes or numbered items, each bullet
+   becomes its own task. Don't collapse them into generic "fill gaps"
+   buckets — the field report called this out as the main source of
+   wasted cycles.
+4. Task ids are short slugs derived from the item (e.g. fix-auth-token,
+   add-rate-limit), not generic names like "impl" / "tests".
+5. Project-level files (pyproject.toml, Dockerfile, config/,
+   migrations/) are fair game — don't restrict to src/ and tests/.
+
 Output ONLY a JSON array. Each task has:
-- id: short identifier
+- id: short slug tied to the item
 - title: one-line description
 - depends_on: list of task IDs ([] if none)
-- agent_prompt: specific instructions (exact file paths, function signatures, expected behavior)
+- agent_prompt: specific instructions (exact file paths, function
+  signatures, expected behaviour, which bullet from the goal it
+  addresses)
 - framework: which tool to use (default: "{FRAMEWORK}"). Available: {available_frameworks}
 
-Example:
-[{{"id":"impl","title":"Implement module","depends_on":[],"agent_prompt":"Create src/mod.py with...","framework":"{FRAMEWORK}"}},
- {{"id":"tests","title":"Write tests","depends_on":["impl"],"agent_prompt":"Create tests/test_mod.py...","framework":"{FRAMEWORK}"}}]
+Example for a goal listing 3 bug fixes:
+[{{"id":"fix-auth-token","title":"Fix token refresh race","depends_on":[],"agent_prompt":"In src/auth.py... addresses goal bullet 1","framework":"{FRAMEWORK}"}},
+ {{"id":"fix-rate-limit","title":"Honour 429 retry header","depends_on":[],"agent_prompt":"In src/http.py... addresses goal bullet 2","framework":"{FRAMEWORK}"}},
+ {{"id":"fix-null-id","title":"Reject null user_id","depends_on":[],"agent_prompt":"In src/models.py... addresses goal bullet 3","framework":"{FRAMEWORK}"}}]
 
-Keep to 2-3 tasks. Tests depend on implementation."""
+Example for a goal "add tests for the payment module":
+[{{"id":"tests-payment-happy","title":"Tests: payment happy path","depends_on":[],"agent_prompt":"tests/test_payment.py covering successful charge, capture, refund...","framework":"{FRAMEWORK}"}},
+ {{"id":"tests-payment-edges","title":"Tests: payment edge cases","depends_on":[],"agent_prompt":"tests/test_payment.py covering declined card, network timeout, duplicate idempotency key...","framework":"{FRAMEWORK}"}}]
+
+Do not inflate to 2-3 tasks if the goal is smaller; do not collapse to
+2-3 if the goal is bigger."""
 
     if not _skip_po:
         po_cmd = build_agent_command(FRAMEWORK, po_prompt)
+        effective_po_timeout = (
+            auto_po_timeout(len(learnings.get("sprints", [])))
+            if PO_TIMEOUT_AUTO
+            else PO_TIMEOUT_S
+        )
         if os.environ.get("CALORON_DEBUG"):
             sys.stderr.write(
                 f"\n=== PO PROMPT (CALORON_DEBUG) ===\n{po_prompt}\n"
-                f"=== / PO PROMPT (timeout={PO_TIMEOUT_S}s) ===\n\n"
+                f"=== / PO PROMPT (timeout={effective_po_timeout}s"
+                f"{', auto-scaled' if PO_TIMEOUT_AUTO else ''}) ===\n\n"
             )
         po_result = subprocess.run(
             [SANDBOX, project] + po_cmd,
-            capture_output=True, text=True, timeout=PO_TIMEOUT_S)
+            capture_output=True, text=True, timeout=effective_po_timeout)
         po_out = po_result.stdout or ""
 
         match = re.search(r"\[.*\]", po_out, re.DOTALL)

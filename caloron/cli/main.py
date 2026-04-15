@@ -226,10 +226,10 @@ def sprint(
         "--debug",
         help="Print PO prompt and other diagnostic output to stderr before execution. type:bool",
     ),
-    po_timeout: int = typer.Option(
-        300,
+    po_timeout: str = typer.Option(
+        "300",
         "--po-timeout",
-        help="PO agent subprocess timeout in seconds. Defaults to 300; raise for projects with heavy accumulated learnings. type:number",
+        help="PO agent subprocess timeout in seconds, or 'auto' to scale with sprint count (300 + 60s per prior sprint, capped at 900s). Defaults to 300. type:string",
     ),
     skip_gitea_check: bool = typer.Option(
         False,
@@ -276,7 +276,17 @@ def sprint(
     env["CALORON_BACKEND"] = project.backend
     env["CALORON_FRAMEWORK"] = project.framework or "claude-code"
     env["AGENT_TIMEOUT"] = str(timeout)
-    env["PO_TIMEOUT"] = str(po_timeout)
+    # Pass through verbatim — 'auto' is a valid value (orchestrator scales
+    # with sprint count); numeric strings work as before.
+    po_timeout_str = str(po_timeout).strip().lower()
+    if po_timeout_str != "auto":
+        try:
+            int(po_timeout_str)
+        except ValueError as e:
+            raise InvalidArgsError(
+                f"--po-timeout must be an integer or 'auto', got {po_timeout!r}"
+            ) from e
+    env["PO_TIMEOUT"] = po_timeout_str
     env["SANDBOX"] = _resolve_sandbox()
     if debug:
         env["CALORON_DEBUG"] = "1"
