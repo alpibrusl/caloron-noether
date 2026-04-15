@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from stages.phases import (  # noqa: E402
     architect_po,
+    design_po,
     dev_po,
     phases_to_sprint_tasks,
     review_po,
@@ -163,6 +164,51 @@ def test_review_distinguishes_impl_from_tests_focus():
     impl_foci = {c["focus"] for c in rev["review_checks"] if c["reviews"].startswith("impl-")}
     tests_foci = {c["focus"] for c in rev["review_checks"] if c["reviews"].startswith("tests-")}
     assert impl_foci and tests_foci and impl_foci.isdisjoint(tests_foci)
+
+
+# ── design_po (no-op pass-through) ──────────────────────────────────────────
+
+
+def test_design_rejects_empty_goal():
+    with pytest.raises(ValueError, match="non-empty"):
+        design_po.execute({"goal": "", "constraints": ""})
+
+
+def test_design_passes_through_goal_and_constraints():
+    out = design_po.execute({"goal": "Build an anomaly dashboard", "constraints": "Desktop only"})
+    assert out["goal"] == "Build an anomaly dashboard"
+    assert out["constraints"] == "Desktop only"
+
+
+def test_design_provides_empty_artifact_slots_when_absent():
+    out = design_po.execute({"goal": "x", "constraints": ""})
+    assert out["design_brief"] == ""
+    assert out["components_inventory"] == []
+
+
+def test_design_preserves_upstream_artifacts():
+    """If an earlier stage (or the input) already supplied design artifacts, keep them."""
+    out = design_po.execute(
+        {
+            "goal": "x",
+            "constraints": "y",
+            "design_brief": "Users must feel calm.",
+            "components_inventory": [{"name": "Table", "purpose": "show things"}],
+        }
+    )
+    assert out["design_brief"] == "Users must feel calm."
+    assert out["components_inventory"] == [{"name": "Table", "purpose": "show things"}]
+
+
+def test_design_feeds_into_architect():
+    """End-to-end: design_po → architect_po chain works via structural subtyping."""
+    design_out = design_po.execute(
+        {"goal": "Build a Parser and Validator", "constraints": ""}
+    )
+    arch_out = architect_po.execute(design_out)
+    # Architect still gets its job done — design_po's extra fields don't break it.
+    assert arch_out["design_doc"]
+    assert arch_out["components"]
 
 
 # ── LLM path (mocked) ────────────────────────────────────────────────────────

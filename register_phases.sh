@@ -28,6 +28,12 @@ root = Path(sys.argv[1])
 noether = sys.argv[2]
 
 specs = {
+    "design_po": {
+        "description": "Design PO — optional phase slot before architect. No-op pass-through today; future designer agents plug in here without rewiring the composition.",
+        "input":  {"Record": [["goal", "Text"], ["constraints", "Text"]]},
+        "output": {"Record": [["goal", "Text"], ["constraints", "Text"], ["design_brief", "Text"], ["components_inventory", {"List": "Any"}]]},
+        "effects": [],
+    },
     "architect_po": {
         "description": "Architect PO — decompose a goal into components, design doc, and risks (LLM-driven when ANTHROPIC_API_KEY is set; template fallback otherwise)",
         "input":  {"Record": [["goal", "Text"], ["constraints", "Text"]]},
@@ -100,11 +106,12 @@ for name, meta in specs.items():
     print(f"  {name}: {ids[name][:16]}…")
 
 graph = {
-    "description": "caloron-noether full_cycle sprint graph (architect → dev → review → flatten)",
+    "description": "caloron-noether full_cycle sprint graph (design → architect → dev → review → flatten)",
     "version": "0.1.0",
     "root": {
         "op": "Sequential",
         "stages": [
+            {"op": "Stage", "id": ids["design_po"]},
             {"op": "Stage", "id": ids["architect_po"]},
             {"op": "Stage", "id": ids["dev_po"]},
             {"op": "Stage", "id": ids["review_po"]},

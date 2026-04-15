@@ -6,6 +6,11 @@
     "stages": [
       {
         "op": "Stage",
+        "id": "REGISTER:design_po",
+        "_desc": "Design PO — optional phase slot before architect. No-op pass-through today; future designer agents plug in here without rewiring the composition."
+      },
+      {
+        "op": "Stage",
         "id": "REGISTER:architect_po",
         "_desc": "Architect PO — goal+constraints → components+design_doc+risks"
       },
