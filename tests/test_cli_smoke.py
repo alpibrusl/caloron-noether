@@ -43,7 +43,7 @@ def test_version(cli_env: dict[str, str]):
     result = _run(["version"], cli_env)
     assert result.returncode == 0
     assert "caloron" in result.stdout
-    assert "0.3.1" in result.stdout
+    assert "0.3.2" in result.stdout
 
 
 def test_status_no_active_project(cli_env: dict[str, str]):
@@ -172,6 +172,49 @@ def shutil_which_in_path(cmd: str, path: str) -> str | None:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     return None
+
+
+def test_org_show_empty_by_default(cli_env: dict[str, str]):
+    """Fresh CALORON_HOME has no conventions → helpful empty message."""
+    result = _run(["org", "show"], cli_env)
+    assert result.returncode == 0
+    assert "no conventions configured" in result.stdout.lower()
+
+
+def test_org_init_creates_template(cli_env: dict[str, str]):
+    result = _run(["org", "init"], cli_env)
+    assert result.returncode == 0
+    home = Path(cli_env["CALORON_HOME"])
+    assert (home / "organisation.yml").is_file()
+    # Re-running complains instead of overwriting.
+    result2 = _run(["org", "init"], cli_env)
+    assert result2.returncode != 0
+    assert "already exists" in (result2.stdout + result2.stderr).lower()
+
+
+def test_org_show_renders_conventions_after_edit(cli_env: dict[str, str]):
+    """Init → edit the file → `org show` renders the configured rules."""
+    _run(["org", "init"], cli_env)
+    home = Path(cli_env["CALORON_HOME"])
+    org_file = home / "organisation.yml"
+    org_file.write_text(
+        'organisation: "Acme Corp"\n'
+        "package_naming:\n  style: kebab-case\n  prefix: acme-\n"
+    )
+    result = _run(["org", "show"], cli_env)
+    assert result.returncode == 0
+    assert "Acme Corp" in result.stdout
+    assert "kebab-case" in result.stdout
+    assert "acme-" in result.stdout
+
+
+def test_org_validate_flags_malformed_yaml(cli_env: dict[str, str]):
+    home = Path(cli_env["CALORON_HOME"])
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "organisation.yml").write_text("not: valid: yaml: [")
+    result = _run(["org", "validate"], cli_env)
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
 
 
 def test_config_set_and_get(cli_env: dict[str, str]):

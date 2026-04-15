@@ -178,6 +178,54 @@ def test_sprint_2_po_argv_carries_sprint_1_blockers(
     assert "missing test for concurrency" in po_prompt
 
 
+def test_po_argv_carries_organisation_conventions(
+    monkeypatch, orchestrator_module
+):
+    """Conventions from CALORON_CONVENTIONS env must appear verbatim in
+    the PO prompt — this is the v0.3.2 plumbing claim for org-wide
+    house style injection. If this breaks, the caloron sprint CLI
+    can populate the env var without agents ever seeing it.
+    """
+    convention_block = (
+        "## Organisation Conventions\n"
+        "(Organisation: TestCo)\n\n"
+        "### Package & module naming\n"
+        "- Package names use **kebab-case**.\n"
+        "- All package names must start with `testco-`.\n"
+    )
+    monkeypatch.setenv("CALORON_CONVENTIONS", convention_block)
+    # Reload so the module-level CONVENTIONS picks it up.
+    import importlib
+
+    importlib.reload(orchestrator_module)
+
+    argv = _drive_main_and_capture_po_argv(
+        monkeypatch, orchestrator_module, "Build the thing"
+    )
+    po_prompt = " ".join(argv)
+    assert "Organisation Conventions" in po_prompt
+    assert "TestCo" in po_prompt
+    assert "kebab-case" in po_prompt
+    assert "testco-" in po_prompt
+
+
+def test_po_argv_omits_conventions_header_when_env_is_empty(
+    monkeypatch, orchestrator_module
+):
+    """No conventions → no empty header in the prompt (avoids cache
+    invalidation and prompt bloat when a user hasn't configured anything)."""
+    monkeypatch.delenv("CALORON_CONVENTIONS", raising=False)
+    import importlib
+
+    importlib.reload(orchestrator_module)
+
+    argv = _drive_main_and_capture_po_argv(
+        monkeypatch, orchestrator_module, "Build the thing"
+    )
+    po_prompt = " ".join(argv)
+    assert "Organisation Conventions" not in po_prompt
+
+
 def test_sprint_6_po_argv_is_compressed_not_verbatim(
     monkeypatch, orchestrator_module
 ):

@@ -62,6 +62,22 @@ BACKEND = os.environ.get("CALORON_BACKEND", "direct")
 # Applies to the PO, HR, and reviewer agents; individual tasks may still
 # override this in the PO-generated DAG.
 FRAMEWORK = os.environ.get("CALORON_FRAMEWORK", "claude-code")
+
+# Organisation conventions rendered into every prompt. Populated by
+# ``caloron sprint`` from ``~/.caloron/organisation.yml`` + any
+# project-level override. Empty string when no conventions configured.
+CONVENTIONS = os.environ.get("CALORON_CONVENTIONS", "")
+
+
+def _conventions_block(conventions: str) -> str:
+    """Format the conventions string for inclusion at a prompt's tail.
+
+    Returns an empty string when there are no conventions, so callers can
+    unconditionally concatenate without emitting empty sections.
+    """
+    if not conventions.strip():
+        return ""
+    return "\n\n" + conventions.rstrip() + "\n"
 NOETHER_STAGES_DIR = os.environ.get("NOETHER_STAGES_DIR",
     str(Path(__file__).parent.parent / "stages"))
 
@@ -936,7 +952,7 @@ Example for a goal "add tests for the payment module":
  {{"id":"tests-payment-edges","title":"Tests: payment edge cases","depends_on":[],"agent_prompt":"tests/test_payment.py covering declined card, network timeout, duplicate idempotency key...","framework":"{FRAMEWORK}"}}]
 
 Do not inflate to 2-3 tasks if the goal is smaller; do not collapse to
-2-3 if the goal is bigger."""
+2-3 if the goal is bigger.{_conventions_block(CONVENTIONS)}"""
 
     if not _skip_po:
         po_cmd = build_agent_command(FRAMEWORK, po_prompt)
@@ -1090,7 +1106,7 @@ CALORON_FEEDBACK_START
   "self_assessment": "<completed|partial|blocked|failed>",
   "notes": "<any observations about the task>"
 }}
-CALORON_FEEDBACK_END"""
+CALORON_FEEDBACK_END{_conventions_block(CONVENTIONS)}"""
 
             print(f"  Agent running ({framework}, sandboxed, supervised)...")
             agent_out, success = run_agent_with_supervision(
@@ -1161,8 +1177,9 @@ CALORON_FEEDBACK_END"""
                     print(f"  Reviewer (cycle {review_cycle})...")
                     review_prompt = f"""Review code change for: {title}
 Files changed: {', '.join(changed)}
-Check: correctness, tests, type hints.
-Respond ONLY: APPROVED or CHANGES_NEEDED: reason"""
+Check: correctness, tests, type hints, AND compliance with the
+organisation conventions below (if any).
+Respond ONLY: APPROVED or CHANGES_NEEDED: reason{_conventions_block(CONVENTIONS)}"""
 
                     review_out, review_ok = run_agent_with_supervision(
                         SANDBOX, project, review_prompt, f"{tid}-review-{review_cycle}",
@@ -1199,7 +1216,7 @@ Files to fix: {', '.join(changed)}
 
 Please fix the issues described above. Modify whatever files are needed
 (src/, tests/, and project-level files like pyproject.toml, Dockerfile,
-or config/ are all fair game). When done, stop."""
+or config/ are all fair game). When done, stop.{_conventions_block(CONVENTIONS)}"""
 
                     fix_out, fix_ok = run_agent_with_supervision(
                         SANDBOX, project, fix_prompt, f"{tid}-fix-{review_cycle}",

@@ -93,6 +93,25 @@ caloron config get|set <key> [value]                 # per-project settings
 
 All commands accept `--output text|json|table`. The framework selected at `caloron init --framework` is propagated to the PO, HR, and reviewer agents. Supported frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`. Non-claude frameworks use their agentic / auto-approval mode (`-y` for Gemini, `--yes-always` for Aider, `exec --full-auto` for Codex, `-p` for cursor-agent); make sure the corresponding CLI is authenticated and on `$PATH`.
 
+### Organisation conventions
+
+Teams with a standard way of laying out projects, naming packages, or
+licensing files can declare those rules once and have every caloron
+sprint apply them. `caloron org init` scaffolds the file; edit it
+with your conventions:
+
+```bash
+caloron org init              # writes ~/.caloron/organisation.yml
+# edit ~/.caloron/organisation.yml
+caloron org show              # preview the block every agent will see
+caloron org validate          # sanity-check the YAML
+```
+
+Per-project overrides go in `<project>/caloron.yml` (right-wins merge).
+Conventions are injected into the PO, agent, reviewer, and fix
+prompts — they're not enforced at tool level (no ruff config
+generation, no CI gate) today; the reviewer is the backstop.
+
 ### Runtime dependency — Gitea
 
 Caloron uses Gitea as the version-control backend for sprints — issues,

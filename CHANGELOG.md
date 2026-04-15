@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.3.2 (2026-04-15)
+
+Adds a house-style conventions layer so teams with a standard way of
+laying out projects, naming packages, licensing files, etc. don't have
+to re-teach every agent every sprint.
+
+### Added
+
+- **`caloron.organisation` module** — loads YAML conventions from
+  `$CALORON_HOME/organisation.yml` (global) and
+  `<project>/caloron.yml` (project-level override, right-wins merge).
+  Schema covers `organisation`, `package_naming`, `imports`,
+  `repository_layout`, `license`, `dependencies`, `commit_message`,
+  `branch_naming`; unknown sections pass through to an "Other" bucket
+  so nothing is silently dropped. Malformed YAML surfaces as a warning
+  — sprints never crash on a bad config.
+
+- **`caloron org` subcommand group**:
+  - `caloron org init` — scaffold a template at
+    `$CALORON_HOME/organisation.yml` with sensible defaults and
+    comments describing each section. Refuses to overwrite.
+  - `caloron org show [--project DIR]` — render the prompt block
+    agents will see. Supports `--output json` for scripting.
+  - `caloron org validate` — load + parse, exit non-zero on warnings.
+
+- **Conventions propagation**. `caloron sprint` now loads conventions
+  (project override + global), renders them into a markdown block,
+  and passes via `CALORON_CONVENTIONS` env var to the orchestrator.
+  The orchestrator appends the block to:
+  - the PO prompt (so task decomposition respects house style),
+  - per-task agent prompts (so implementation follows the rules),
+  - the reviewer prompt (so review checks include convention
+    compliance),
+  - the fix prompt (so regression fixes don't re-introduce
+    violations).
+  Empty conventions → env var unset → no empty headers added,
+  preserving prompt-cache friendliness.
+
+### Notes
+
+- Conventions are **injected into agent context**, not enforced at
+  tool level. An agent that ignores the rules will still merge; the
+  reviewer is the backstop. Tool-level enforcement (ruff configs,
+  pre-commit hooks, CI gates shaped by the same YAML) is the next
+  layer — tracked for a later release.
+- Skills / tools / MCP enforcement in the existing `agentspec_bridge`
+  remains advisory (tracked via `missing_tools` / warnings; never
+  aborts the sprint). This release does not change that — it's
+  orthogonal to the conventions work.
+
+### Tests
+
+- 15 unit tests on the loader + renderer (empty defaults, missing
+  file, malformed YAML, non-mapping top-level, project override
+  wins, roundtrip).
+- 4 CLI smoke tests on `caloron org {init,show,validate}`.
+- 2 new integration tests proving the conventions block ends up in
+  the PO subprocess argv when `CALORON_CONVENTIONS` is set, and
+  does NOT appear when unset. 107/107 suite green.
+
 ## 0.3.1 (2026-04-15)
 
 Second-round field-report fixes on top of v0.3.0. po_context propagation

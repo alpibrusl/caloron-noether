@@ -276,6 +276,26 @@ def sprint(
     env["CALORON_BACKEND"] = project.backend
     env["CALORON_FRAMEWORK"] = project.framework or "claude-code"
     env["AGENT_TIMEOUT"] = str(timeout)
+
+    # Load organisation conventions and pass the rendered block through
+    # to the orchestrator as an env var. Project-level overrides come
+    # from <project-workdir>/caloron.yml when present. Empty block
+    # short-circuits — no env var set, orchestrator appends nothing.
+    from caloron.organisation import load_conventions
+
+    project_workdir = project.work_dir or str(project.path / "workspace")
+    conventions = load_conventions(project_dir=project_workdir)
+    if conventions.warnings:
+        for w in conventions.warnings:
+            sys.stderr.write(f"⚠️  org conventions: {w}\n")
+    rendered_conventions = conventions.render_prompt_block()
+    if rendered_conventions:
+        env["CALORON_CONVENTIONS"] = rendered_conventions
+        sys.stderr.write(
+            f"✓ Loaded {len(rendered_conventions)} chars of org conventions "
+            f"from {conventions.source}\n"
+        )
+
     # Pass through verbatim — 'auto' is a valid value (orchestrator scales
     # with sprint count); numeric strings work as before.
     po_timeout_str = str(po_timeout).strip().lower()
@@ -847,6 +867,136 @@ def config_set(
     config_data[key] = value
     project.config_path.write_text(yaml.dump(config_data, sort_keys=False))
     sys.stdout.write(f"Set {key} = {value} in {project.name}\n")
+
+
+# ── org (organisation conventions) ─────────────────────────────────────────
+
+org_app = typer.Typer(
+    help="Manage organisation-wide conventions injected into every agent prompt"
+)
+app.add_typer(org_app, name="org")
+
+
+_ORG_INIT_TEMPLATE = """# Organisation-wide conventions applied to every caloron sprint.
+# See `caloron org show` to render the block agents will see, and
+# `caloron org validate` to check shape. Every field is optional.
+
+organisation: ""  # e.g. "Alpibru Labs"
+
+package_naming:
+  style: kebab-case   # or snake_case, PascalCase
+  # prefix: "alpibru-"
+
+imports:
+  # namespace: "alpibru"
+  style: absolute
+
+repository_layout:
+  src: src/
+  tests: tests/
+
+license:
+  header: |
+    Copyright (c) Your Company. All rights reserved.
+
+dependencies:
+  disallow: []   # e.g. [GPL, AGPL]
+
+commit_message:
+  format: "<type>(<scope>): <summary>"
+
+branch_naming:
+  format: "<type>/<ticket>-<slug>"
+"""
+
+
+@org_app.command("init")
+def org_init() -> None:
+    """Scaffold an organisation conventions file with sensible defaults.
+
+    Writes to $CALORON_HOME/organisation.yml (default ~/.caloron/). If the
+    file already exists, bails out rather than overwriting — use your
+    editor or `caloron org set` to edit in place.
+    """
+    from caloron.organisation import GLOBAL_CONVENTIONS_FILE
+
+    target = GLOBAL_CONVENTIONS_FILE
+    if target.exists():
+        raise ConflictError(
+            f"{target} already exists",
+            hint="Edit it directly, or delete and re-run `caloron org init`",
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(_ORG_INIT_TEMPLATE)
+    sys.stdout.write(f"Created {target}\nEdit it to declare your conventions.\n")
+
+
+@org_app.command("show")
+def org_show(
+    project: str = typer.Option(
+        "", "--project", "-p", help="Merge in project-level overrides from <project>/caloron.yml. type:path"
+    ),
+    output: OutputFormat = typer.Option(
+        OutputFormat.text, "--output", help="Output format. type:enum[text|json|table]"
+    ),
+) -> None:
+    """Render the conventions block agents will receive in every prompt."""
+    from caloron.organisation import load_conventions
+
+    start = time.time()
+    conv = load_conventions(project_dir=project or None)
+    rendered = conv.render_prompt_block()
+
+    if output == OutputFormat.json:
+        emit(
+            success_envelope(
+                "org.show",
+                {
+                    "source": conv.source,
+                    "organisation": conv.organisation,
+                    "is_empty": conv.is_empty(),
+                    "rendered": rendered,
+                    "warnings": conv.warnings,
+                },
+                version=__version__,
+                start_time=start,
+            ),
+            output,
+        )
+        return
+
+    if conv.warnings:
+        for w in conv.warnings:
+            sys.stderr.write(f"Warning: {w}\n")
+    if conv.is_empty():
+        sys.stdout.write(
+            "(no conventions configured — run `caloron org init` to start)\n"
+        )
+        return
+    sys.stdout.write(f"Source: {conv.source}\n\n")
+    sys.stdout.write(rendered)
+
+
+@org_app.command("validate")
+def org_validate(
+    project: str = typer.Option(
+        "", "--project", "-p", help="Also validate <project>/caloron.yml. type:path"
+    ),
+) -> None:
+    """Load the conventions file(s) and report any parse / shape issues."""
+    from caloron.organisation import load_conventions
+
+    conv = load_conventions(project_dir=project or None)
+    if conv.warnings:
+        for w in conv.warnings:
+            sys.stdout.write(f"⚠️  {w}\n")
+        raise SystemExit(1)
+    if conv.is_empty():
+        sys.stdout.write(
+            "(no conventions configured — `caloron org init` to start)\n"
+        )
+        return
+    sys.stdout.write(f"OK — loaded from {conv.source}\n")
 
 
 # ── Entrypoint ─────────────────────────────────────────────────────────────
