@@ -1,7 +1,7 @@
 {
-  "description": "Caloron sprint tick — poll GitHub, advance DAG, supervise agents",
+  "description": "DEPRECATED — use sprint_tick_core.json. This file is v0.1-era and references stage IDs that are no longer valid under Noether v0.3+. Kept for reference; will be removed in v0.4.",
   "version": "0.1.0",
-  "_note": "All stage IDs resolved — registered in local Noether store",
+  "_deprecated": "See compositions/sprint_tick_core.json for the type-checked, runnable replacement. That composition is stateless — callers persist state across ticks externally (a KV-wrapped variant may come later).",
   "root": {
     "op": "Sequential",
     "stages": [

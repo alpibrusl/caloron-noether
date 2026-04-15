@@ -317,6 +317,73 @@ CATALOG: dict[str, dict[str, Any]] = {
         },
         "effects": _LLM_EFFECTS,
     },
+    # ── Sprint-tick boundary reshape stages ──────────────────────────────
+    # These exist purely to realign data between the domain stages above
+    # and the sprint_tick composition chain. Each one is narrow and
+    # typed so the composition dry-run-checks end-to-end, and so the
+    # data flow in the graph remains explicit rather than hidden inside
+    # a monolithic Python stage.
+    "project_poll_to_eval": {
+        "code_path": "stages/sprint/project_poll_to_eval.py",
+        "description": "Reshape scope-with-poll-binding into dag_evaluate input.",
+        "input": {
+            "Record": [
+                ["state", "Any"],
+                ["poll", "Any"],
+                ["stall_threshold_m", "Number"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["state", "Any"],
+                ["events", {"List": "Any"}],
+                ["stall_threshold_m", "Number"],
+            ]
+        },
+        "effects": [],
+    },
+    "project_health_to_intervention": {
+        "code_path": "stages/sprint/project_health_to_intervention.py",
+        "description": "Reshape scope-with-health-binding into decide_intervention input.",
+        "input": {
+            "Record": [
+                ["health", "Any"],
+                ["interventions", "Any"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["results", {"List": "Any"}],
+                ["interventions", "Any"],
+            ]
+        },
+        "effects": [],
+    },
+    "project_all_to_execute": {
+        "code_path": "stages/sprint/project_all_to_execute.py",
+        "description": "Reshape accumulated sprint-tick scope into execute_actions input.",
+        "input": {
+            "Record": [
+                ["eval", "Any"],
+                ["supervisor", "Any"],
+                ["repo", "Text"],
+                ["token_env", "Text"],
+                ["shell_url", "Text"],
+                ["sprint_id", "Text"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["repo", "Text"],
+                ["token_env", "Text"],
+                ["shell_url", "Text"],
+                ["dag_actions", {"List": "Any"}],
+                ["supervisor_actions", {"List": "Any"}],
+                ["sprint_id", "Text"],
+            ]
+        },
+        "effects": [],
+    },
     # ── Kickoff stages ───────────────────────────────────────────────────
     "fetch_repo_context": {
         "code_path": "stages/kickoff/fetch_repo_context.py",

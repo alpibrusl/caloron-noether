@@ -1,0 +1,71 @@
+{
+  "description": "Caloron sprint tick (core) \u2014 one pass of: poll GitHub \u2192 advance DAG \u2192 check agent health \u2192 decide interventions \u2192 execute actions. Stateless; caller supplies current state and persists the result.",
+  "version": "0.1.0",
+  "root": {
+    "op": "Let",
+    "bindings": {
+      "poll": {
+        "op": "Stage",
+        "id": "3634f9acd193c77d4c4a29c3665897ac496e28f5f5aba821040eec7fac74f085"
+      }
+    },
+    "body": {
+      "op": "Let",
+      "bindings": {
+        "eval": {
+          "op": "Sequential",
+          "stages": [
+            {
+              "op": "Stage",
+              "id": "3b3d60ca653a1e3e9730470d86b17dc5e3534fabf13e39c57cb0bd90ed59701b"
+            },
+            {
+              "op": "Stage",
+              "id": "151f096db2ccb66365ce410abaa6293056560a00f0e8ee415e9524b6fa16f5ac"
+            }
+          ]
+        }
+      },
+      "body": {
+        "op": "Let",
+        "bindings": {
+          "health": {
+            "op": "Stage",
+            "id": "ff7dce411aff14f72e0845b846c048d9621ed7f4d2ce4352155db207bab759ce"
+          }
+        },
+        "body": {
+          "op": "Let",
+          "bindings": {
+            "supervisor": {
+              "op": "Sequential",
+              "stages": [
+                {
+                  "op": "Stage",
+                  "id": "d5a3d83babf00ea024e38d59836df644e0a6aae49d680de8021da374a7313ca5"
+                },
+                {
+                  "op": "Stage",
+                  "id": "bc5f4ae8e12d9404c9bb956a58a5dbb731c344bf09f37bbcc1414cd54d7c20ae"
+                }
+              ]
+            }
+          },
+          "body": {
+            "op": "Sequential",
+            "stages": [
+              {
+                "op": "Stage",
+                "id": "368dc85ce4cdf25d2fceee5b59d84e4593c6a181face136ea5956f335466169e"
+              },
+              {
+                "op": "Stage",
+                "id": "a9c3321131fe4ec3cb7c97b61308f0a27e8970ae8afd4dd677318bcaeba00fdc"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
