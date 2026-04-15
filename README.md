@@ -93,6 +93,25 @@ caloron config get|set <key> [value]                 # per-project settings
 
 All commands accept `--output text|json|table`. The framework selected at `caloron init --framework` is propagated to the PO, HR, and reviewer agents. Supported frameworks: `claude-code`, `cursor-cli`, `gemini-cli`, `codex-cli`, `open-code`, `aider`. Non-claude frameworks use their agentic / auto-approval mode (`-y` for Gemini, `--yes-always` for Aider, `exec --full-auto` for Codex, `-p` for cursor-agent); make sure the corresponding CLI is authenticated and on `$PATH`.
 
+### Runtime dependency — Gitea
+
+Caloron uses Gitea as the version-control backend for sprints — issues,
+PRs, merges, review comments all go through its API. A running Gitea
+container is **required**; without it, `caloron sprint` aborts with
+instructions. Start one with:
+
+```bash
+docker run -d --name gitea -p 3000:3000 -p 222:22 gitea/gitea:1.22
+```
+
+Set `GITEA_TOKEN` (or accept the dev-mode default) and configure your
+project with `caloron config set repo <owner>/<repo>` pointing at a
+repo you've created in that Gitea instance.
+
+Bypass the preflight with `caloron sprint --skip-gitea-check` if you
+intentionally want to run without version control (agent still runs;
+all git/issue/PR calls become no-ops).
+
 ### Sandbox
 
 On Linux, `caloron sprint` runs each agent inside a `bwrap` (bubblewrap) sandbox. On macOS and other systems where `bwrap` is unavailable, it falls back to a no-op passthrough script so `pip install caloron-alpibru` works out of the box. Override with `SANDBOX=/path/to/your-sandbox.sh` if you need custom isolation.

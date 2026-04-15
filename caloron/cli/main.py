@@ -221,6 +221,21 @@ def sprint(
         "-g",
         help="Path to a Noether composition graph. If set, its {tasks} output replaces the built-in PO step. type:path",
     ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        help="Print PO prompt and other diagnostic output to stderr before execution. type:bool",
+    ),
+    po_timeout: int = typer.Option(
+        300,
+        "--po-timeout",
+        help="PO agent subprocess timeout in seconds. Defaults to 300; raise for projects with heavy accumulated learnings. type:number",
+    ),
+    skip_gitea_check: bool = typer.Option(
+        False,
+        "--skip-gitea-check",
+        help="Skip the Gitea preflight check. Sprints still run but any git/issue/PR calls will be silent no-ops. type:bool",
+    ),
     output: OutputFormat = typer.Option(
         OutputFormat.text, "--output", help="Output format. type:enum[text|json|table]"
     ),
@@ -261,7 +276,12 @@ def sprint(
     env["CALORON_BACKEND"] = project.backend
     env["CALORON_FRAMEWORK"] = project.framework or "claude-code"
     env["AGENT_TIMEOUT"] = str(timeout)
+    env["PO_TIMEOUT"] = str(po_timeout)
     env["SANDBOX"] = _resolve_sandbox()
+    if debug:
+        env["CALORON_DEBUG"] = "1"
+    if skip_gitea_check:
+        env["CALORON_SKIP_GITEA_CHECK"] = "1"
 
     # If the user supplied a plan graph, run it now and hand the resulting
     # tasks to the orchestrator via a precomputed DAG file. The orchestrator

@@ -43,7 +43,7 @@ def test_version(cli_env: dict[str, str]):
     result = _run(["version"], cli_env)
     assert result.returncode == 0
     assert "caloron" in result.stdout
-    assert "0.1.0" in result.stdout
+    assert "0.3.0" in result.stdout
 
 
 def test_status_no_active_project(cli_env: dict[str, str]):

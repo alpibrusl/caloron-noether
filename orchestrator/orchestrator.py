@@ -46,6 +46,9 @@ REPO = os.environ.get("REPO", "caloron/full-loop")
 SANDBOX = os.environ.get("SANDBOX", str(Path(__file__).parent.parent.parent / "scripts" / "sandbox-agent.sh"))
 WORK = os.environ.get("WORK", "/tmp/caloron-full-loop")
 AGENT_TIMEOUT_S = int(os.environ.get("AGENT_TIMEOUT", "180"))  # 3 minutes
+# PO agent's prompt grows with accumulated learnings, so it needs a
+# bigger budget than per-task agents. Override with PO_TIMEOUT_S.
+PO_TIMEOUT_S = int(os.environ.get("PO_TIMEOUT", "300"))  # 5 minutes default
 MAX_RETRIES = 2
 LEARNINGS_FILE = os.path.join(os.environ.get("WORK", "/tmp/caloron-full-loop"), "learnings.json")
 
@@ -259,7 +262,64 @@ def parse_agent_feedback(agent_output: str) -> dict:
         return defaults
 
 
+# ── Path filters ────────────────────────────────────────────────────────────
+
+
+# Paths caloron writes itself (or that would pollute the PR) — keep the
+# agent out of these while allowing broader scope than just src/ + tests/.
+_CALORON_MANAGED_PREFIXES = (
+    ".caloron/",
+    ".noether/",
+    ".git/",
+)
+_CALORON_MANAGED_FILES = {
+    "CLAUDE.md",       # generated per-task by agent_configurator
+    ".mcp.json",       # MCP registration
+    ".cursorrules",
+    "GEMINI.md",
+    "AGENTS.md",
+    ".aider.conf.yml",
+}
+
+
+def _is_caloron_managed(path: str) -> bool:
+    """True if the path is one caloron writes itself and agents shouldn't."""
+    if path in _CALORON_MANAGED_FILES:
+        return True
+    return any(path.startswith(p) for p in _CALORON_MANAGED_PREFIXES)
+
+
 # ── Gitea API ───────────────────────────────────────────────────────────────
+
+def gitea_available() -> tuple[bool, str]:
+    """Preflight check: is the Gitea container running and reachable?
+
+    Returns (ok, detail). ``ok=False`` means the orchestrator should abort
+    or warn prominently — every gitea() call will silently return {} and
+    the sprint will produce fake issue numbers, fake PRs, and no real
+    version control, which is the worst possible failure mode for an
+    autonomous tool.
+    """
+    try:
+        r = subprocess.run(
+            ["docker", "ps", "--filter", "name=^gitea$", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return False, f"docker CLI not available: {e}"
+    if r.returncode != 0 or "gitea" not in (r.stdout or ""):
+        return False, "no running container named 'gitea'"
+    try:
+        ping = subprocess.run(
+            ["docker", "exec", "gitea", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/version"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "gitea container exists but /api/v1/version timed out"
+    if ping.returncode != 0 or "version" not in (ping.stdout or ""):
+        return False, "gitea container up but API not responding"
+    return True, ping.stdout.strip()
+
 
 def gitea(method: str, path: str, data: dict | None = None) -> dict:
     if method == "GET":
@@ -340,13 +400,21 @@ def run_agent_with_supervision(
     task_id: str,
     issue_number: int,
     supervisor: SupervisorState,
-    framework: str = "claude-code",
+    framework: str | None = None,
 ) -> tuple[str, bool]:
-    """Run an agent with timeout and retry. Returns (stdout, success)."""
+    """Run an agent with timeout and retry. Returns (stdout, success).
+
+    Framework defaults to the project-configured FRAMEWORK (from
+    CALORON_FRAMEWORK env var). Callers can override — e.g. per-task
+    framework from the DAG — but the reviewer and fixer used to default
+    to claude-code explicitly, which silently broke for projects
+    configured with gemini-cli / codex-cli / etc.
+    """
+    effective_framework = framework or FRAMEWORK
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            agent_cmd = build_agent_command(framework, prompt)
+            agent_cmd = build_agent_command(effective_framework, prompt)
             result = subprocess.run(
                 [sandbox, project] + agent_cmd,
                 capture_output=True, text=True,
@@ -605,26 +673,58 @@ def save_learnings(learnings: dict):
 
 
 def build_po_context(learnings: dict) -> str:
-    """Build context from previous sprints for the PO Agent."""
-    if not learnings["sprints"]:
+    """Build context from previous sprints for the PO Agent.
+
+    Widened from the original single-last-sprint summary to include:
+    - KPIs from up to the last 3 sprints (trend visible)
+    - Accumulated improvements list
+    - All blockers from the last sprint (not just the tail 3) since those
+      are the concrete things to address next sprint
+    - Force-merge warnings surfaced prominently, since they represent
+      unresolved review feedback that hit the cycle cap
+    """
+    if not learnings.get("sprints"):
         return ""
 
+    sprints = learnings["sprints"]
     ctx = "\n## Learnings from Previous Sprints\n\n"
 
-    last = learnings["sprints"][-1]
-    ctx += f"Last sprint: {last.get('completed', 0)}/{last.get('total', 0)} tasks completed, "
-    ctx += f"clarity {last.get('avg_clarity', '?')}/10, "
-    ctx += f"{last.get('supervisor_events', 0)} supervisor interventions.\n\n"
+    # Trend across up to last 3 sprints.
+    recent = sprints[-3:]
+    ctx += f"Recent sprints ({len(recent)} of {len(sprints)} total):\n"
+    for s in recent:
+        ctx += (
+            f"- {s.get('sprint_id', '?')}: "
+            f"{s.get('completed', 0)}/{s.get('total', 0)} tasks, "
+            f"clarity {s.get('avg_clarity', '?')}/10, "
+            f"{s.get('supervisor_events', 0)} supervisor events\n"
+        )
+    ctx += "\n"
 
-    if learnings["improvements"]:
-        ctx += "Pending improvements:\n"
-        for imp in learnings["improvements"][-5:]:
+    last = sprints[-1]
+
+    if learnings.get("improvements"):
+        ctx += "Pending improvements (carry-forward):\n"
+        for imp in learnings["improvements"][-8:]:
             ctx += f"- {imp}\n"
         ctx += "\n"
 
-    if last.get("blockers"):
-        ctx += "Common blockers from last sprint:\n"
-        for b in last["blockers"][-3:]:
+    # Surface force-merges — they represent real bugs that slipped through.
+    force_merges = [b for b in last.get("blockers", []) if "FORCE-MERGED" in b]
+    if force_merges:
+        ctx += "⚠️ Unresolved feedback from force-merged PRs last sprint:\n"
+        for b in force_merges:
+            ctx += f"- {b}\n"
+        ctx += (
+            "Treat these as open technical debt — either surface them as "
+            "dedicated tasks this sprint, or explicitly acknowledge in "
+            "agent_prompts that the relevant module needs the fix.\n\n"
+        )
+
+    regular_blockers = [b for b in last.get("blockers", []) if "FORCE-MERGED" not in b]
+    if regular_blockers:
+        ctx += "Blockers from last sprint:\n"
+        for b in regular_blockers[-8:]:
             ctx += f"- {b}\n"
         ctx += "\nAddress these in task specifications.\n"
 
@@ -654,10 +754,50 @@ def main():
     supervisor = SupervisorState()
     sprint_start = time.time()
 
+    # Gitea preflight — silent-failure mode is the worst UX. Warn loudly.
+    gitea_ok, gitea_detail = gitea_available()
+    if not gitea_ok:
+        sys.stderr.write(
+            "\n"
+            "⚠️  Gitea is not reachable.\n"
+            f"   Reason: {gitea_detail}\n"
+            "\n"
+            "   Caloron sprints require a running Gitea container for issues,\n"
+            "   PRs, and merges. Without it, sprints run but produce fake\n"
+            "   issue numbers (#0) and no real version control.\n"
+            "\n"
+            "   Start one with:\n"
+            "     docker run -d --name gitea -p 3000:3000 -p 222:22 gitea/gitea:1.22\n"
+            "\n"
+            "   Then re-run the sprint. Set CALORON_SKIP_GITEA_CHECK=1 to\n"
+            "   bypass this check (sprints will still run but version control\n"
+            "   calls will be no-ops).\n\n"
+        )
+        if not os.environ.get("CALORON_SKIP_GITEA_CHECK"):
+            sys.exit(2)
+
     # Load learnings from previous sprints
     learnings = load_learnings()
     sprint_number = len(learnings["sprints"]) + 1
     po_context = build_po_context(learnings)
+
+    # Loud log so users can see whether prior-sprint context actually
+    # made it into this run — the #1 reported bug was "po_context silently
+    # empty in sprint 2." Absence vs. presence is now visible on stdout.
+    if po_context:
+        print(
+            f"  ✓ Loaded {len(learnings['sprints'])} prior sprint(s) "
+            f"from {LEARNINGS_FILE}; PO context: {len(po_context)} chars"
+        )
+    else:
+        print(
+            f"  (no prior learnings at {LEARNINGS_FILE} — first sprint or "
+            "fresh WORK directory)"
+        )
+
+    # Persist the generated context for post-hoc inspection.
+    learnings["last_po_context"] = po_context
+    save_learnings(learnings)
 
     # Load agent version store
     agent_store = AgentVersionStore(os.path.join(WORK, "agent_versions.json"))
@@ -717,9 +857,14 @@ Keep to 2-3 tasks. Tests depend on implementation."""
 
     if not _skip_po:
         po_cmd = build_agent_command(FRAMEWORK, po_prompt)
+        if os.environ.get("CALORON_DEBUG"):
+            sys.stderr.write(
+                f"\n=== PO PROMPT (CALORON_DEBUG) ===\n{po_prompt}\n"
+                f"=== / PO PROMPT (timeout={PO_TIMEOUT_S}s) ===\n\n"
+            )
         po_result = subprocess.run(
             [SANDBOX, project] + po_cmd,
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, timeout=PO_TIMEOUT_S)
         po_out = po_result.stdout or ""
 
         match = re.search(r"\[.*\]", po_out, re.DOTALL)
@@ -839,7 +984,11 @@ Keep to 2-3 tasks. Tests depend on implementation."""
             full_prompt = f"""{prompt}
 
 Rules:
-- Only create/modify files in src/ and tests/
+- Prefer src/ and tests/ for application code and tests
+- Project-level files are fair game when the task needs them:
+  pyproject.toml, Dockerfile, docker-compose.yml, .env.example,
+  config/, scripts/, .github/workflows/, migrations/
+- Do NOT modify caloron's own orchestration files (.caloron/, CLAUDE.md)
 - Use type hints
 - Read CLAUDE.md for skill-specific instructions
 - When COMPLETELY done, output a feedback block as the LAST thing you print, in this exact format:
@@ -879,7 +1028,8 @@ CALORON_FEEDBACK_END"""
             diff = subprocess.run(["git", "diff", "--cached", "--name-only"],
                                   cwd=project, capture_output=True, text=True)
             changed = [f for f in diff.stdout.strip().split("\n")
-                       if f and (f.startswith("src/") or f.startswith("tests/"))
+                       if f
+                       and not _is_caloron_managed(f)
                        and f not in ("src/__init__.py", "tests/__init__.py")
                        and "__pycache__" not in f and not f.endswith(".pyc")]
             subprocess.run(["git", "checkout", "--", "."], cwd=project, capture_output=True)
@@ -915,6 +1065,7 @@ CALORON_FEEDBACK_END"""
                 # Review cycle — up to MAX_REVIEW_CYCLES attempts
                 MAX_REVIEW_CYCLES = 3
                 merged = False
+                fix_reason = ""
 
                 for review_cycle in range(1, MAX_REVIEW_CYCLES + 1):
                     # Reviewer agent (supervised)
@@ -925,7 +1076,8 @@ Check: correctness, tests, type hints.
 Respond ONLY: APPROVED or CHANGES_NEEDED: reason"""
 
                     review_out, review_ok = run_agent_with_supervision(
-                        SANDBOX, project, review_prompt, f"{tid}-review-{review_cycle}", issue_num, supervisor)
+                        SANDBOX, project, review_prompt, f"{tid}-review-{review_cycle}",
+                        issue_num, supervisor, framework=framework)
                     review = review_out.strip().split("\n")[-1] if review_out else "APPROVED"
                     print(f"  Review: {review[:80]}")
 
@@ -956,10 +1108,13 @@ Reviewer feedback: {fix_reason}
 
 Files to fix: {', '.join(changed)}
 
-Please fix the issues described above. Only modify files in src/ and tests/. When done, stop."""
+Please fix the issues described above. Modify whatever files are needed
+(src/, tests/, and project-level files like pyproject.toml, Dockerfile,
+or config/ are all fair game). When done, stop."""
 
                     fix_out, fix_ok = run_agent_with_supervision(
-                        SANDBOX, project, fix_prompt, f"{tid}-fix-{review_cycle}", issue_num, supervisor)
+                        SANDBOX, project, fix_prompt, f"{tid}-fix-{review_cycle}",
+                        issue_num, supervisor, framework=framework)
                     if fix_out:
                         for line in fix_out.strip().split("\n")[-2:]:
                             print(f"    {line}")
@@ -969,8 +1124,10 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
                     fix_diff = subprocess.run(["git", "diff", "--cached", "--name-only"],
                                               cwd=project, capture_output=True, text=True)
                     fix_changed = [f for f in fix_diff.stdout.strip().split("\n")
-                                   if f and (f.startswith("src/") or f.startswith("tests/"))
-                                   and f not in ("src/__init__.py", "tests/__init__.py")]
+                                   if f
+                                   and not _is_caloron_managed(f)
+                                   and f not in ("src/__init__.py", "tests/__init__.py")
+                                   and "__pycache__" not in f and not f.endswith(".pyc")]
                     subprocess.run(["git", "checkout", "--", "."], cwd=project, capture_output=True)
 
                     for filepath in fix_changed:
@@ -984,12 +1141,19 @@ Please fix the issues described above. Only modify files in src/ and tests/. Whe
                     print(f"  Pushed fix ({len(fix_changed)} files)")
 
                 if not merged and review_cycle == MAX_REVIEW_CYCLES:
-                    # Force merge after max cycles
+                    # Force merge after max cycles. The blocker string is
+                    # prefixed with "⚠️ FORCE-MERGED" so build_po_context
+                    # can surface it separately in the next sprint's
+                    # retro — distinguishing "approved" from "merged over
+                    # unresolved feedback" which used to look identical.
                     print("  Max review cycles reached — force merging")
                     merge_ok = git_merge_branch(branch, f"Merge PR #{pr_num}: [{tid}] {title} (force after {MAX_REVIEW_CYCLES} cycles)")
                     if merge_ok:
-                        print(f"  PR #{pr_num} FORCE MERGED")
-                    blockers.append(f"Force merged after {MAX_REVIEW_CYCLES} review cycles")
+                        print(f"  ⚠️  PR #{pr_num} FORCE MERGED (unresolved review feedback)")
+                    blockers.append(
+                        f"⚠️ FORCE-MERGED after {MAX_REVIEW_CYCLES} review cycles — unresolved: "
+                        f"{(fix_reason or 'unknown')[:160]}"
+                    )
 
             task_time = int(time.time() - task_start)
             task_time_min = max(1, task_time // 60)

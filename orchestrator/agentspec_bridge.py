@@ -345,7 +345,11 @@ def _write_claude_config(
 {system_prompt}
 
 ## Rules
-- Only create/modify files in src/ and tests/
+- Prefer src/ and tests/ for application code and tests
+- Project-level files (pyproject.toml, Dockerfile, docker-compose.yml,
+  config/, scripts/, .github/workflows/, migrations/) are fair game
+  when the task needs them
+- Do NOT modify CLAUDE.md, .mcp.json, or the .caloron/ directory
 - Use type hints
 - Run tests before finishing
 """)
