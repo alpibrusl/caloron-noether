@@ -783,6 +783,74 @@ def build_po_context(learnings: dict) -> str:
     return ctx
 
 
+def _resolved_skills_for(task: dict) -> set[str]:
+    """Collect the skills/tools the resolver actually attached to a task.
+
+    Looks across three places because the code path differs depending on
+    whether agentspec is installed and whether the bridge populated its
+    own `tools` list:
+
+      1. ``task["skills"]`` — from the HR agent (always present).
+      2. ``task["agentspec"]["tools"]`` — from the bridge when agentspec
+         is installed and resolution succeeded.
+      3. ``task["tools_used"]`` — set by the HR agent too when it could
+         map a skill to a concrete tool.
+
+    Union of all three, lowercased for case-insensitive comparison.
+    """
+    out: set[str] = set()
+    for key in ("skills", "tools_used"):
+        val = task.get(key) or []
+        if isinstance(val, list):
+            out.update(str(v).lower() for v in val)
+    agentspec = task.get("agentspec") or {}
+    if isinstance(agentspec, dict):
+        for key in ("tools",):
+            val = agentspec.get(key) or []
+            if isinstance(val, list):
+                out.update(str(v).lower() for v in val)
+    return out
+
+
+def _enforce_required_skills(
+    tasks: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Split ``tasks`` into (runnable, blocked) by ``required_skills``.
+
+    A task with ``required_skills: []`` or no field at all is always
+    runnable. When the set is non-empty, every entry must appear in the
+    task's resolved skills/tools (case-insensitive) or the task is
+    blocked with a diagnostic record.
+
+    Blocked tasks are NOT silently dropped — callers log them so the
+    retro captures the config gap as a first-class blocker.
+    """
+    runnable: list[dict] = []
+    blocked: list[dict] = []
+    for task in tasks:
+        required = task.get("required_skills") or []
+        if not required:
+            runnable.append(task)
+            continue
+        resolved = _resolved_skills_for(task)
+        missing = [
+            r for r in required if str(r).lower() not in resolved
+        ]
+        if missing:
+            blocked.append(
+                {
+                    "id": task.get("id", "?"),
+                    "required": list(required),
+                    "resolved": sorted(resolved),
+                    "missing": missing,
+                    "task": task,
+                }
+            )
+        else:
+            runnable.append(task)
+    return runnable, blocked
+
+
 def auto_po_timeout(sprint_count: int) -> int:
     """Scale the PO timeout with accumulated history.
 
@@ -871,7 +939,36 @@ def main():
     print(f"  Goal: {goal}")
     if BACKEND == "noether":
         print(f"  Stages: {NOETHER_STAGES_DIR}")
-    print(f"  AgentSpec: {'enabled' if AGENTSPEC_AVAILABLE else 'disabled (pip install agentspec-alpibru)'}")
+    if AGENTSPEC_AVAILABLE:
+        print("  AgentSpec: enabled (manifest-based agent resolution)")
+    else:
+        # Loud warning — the HR-agent keyword fallback produces
+        # strictly weaker agent selection than agentspec's manifest
+        # resolver. Field reports surface this as mystery tool gaps;
+        # make the downgrade impossible to miss. Set
+        # CALORON_ALLOW_NO_AGENTSPEC=1 to silence if users genuinely
+        # want keyword fallback (e.g. minimal CI environments).
+        sys.stderr.write(
+            "\n"
+            "⚠️  AgentSpec is NOT installed.\n"
+            "   Caloron is falling back to keyword-matching for agent\n"
+            "   skill/tool/MCP selection, which is strictly weaker than\n"
+            "   manifest-based resolution and was the root cause of\n"
+            "   several previously-reported mystery tool gaps.\n"
+            "\n"
+            "   Install with:\n"
+            "     pip install agentspec-alpibru\n"
+            "\n"
+            "   Silence this warning (if keyword fallback is intentional):\n"
+            "     export CALORON_ALLOW_NO_AGENTSPEC=1\n"
+            "\n"
+        )
+        if not os.environ.get("CALORON_ALLOW_NO_AGENTSPEC"):
+            # Give the user a few seconds to abort; don't hard-fail
+            # because the fallback does still work.
+            print("  AgentSpec: MISSING — using keyword-match fallback")
+        else:
+            print("  AgentSpec: disabled (CALORON_ALLOW_NO_AGENTSPEC=1)")
     if po_context:
         print(f"  (with learnings from {len(learnings['sprints'])} previous sprint(s))")
     # Show agent versions if any exist
@@ -941,6 +1038,12 @@ Output ONLY a JSON array. Each task has:
   signatures, expected behaviour, which bullet from the goal it
   addresses)
 - framework: which tool to use (default: "{FRAMEWORK}"). Available: {available_frameworks}
+- required_skills: list of skills the agent MUST have for this task
+  (e.g. ["python-development", "github-pr-management"]). Omit or pass
+  [] when no specific skill is load-bearing. When set, the sprint will
+  abort this task before running if the resolved agent lacks any of
+  them — surfacing the config gap instead of silently producing bad
+  output.
 
 Example for a goal listing 3 bug fixes:
 [{{"id":"fix-auth-token","title":"Fix token refresh race","depends_on":[],"agent_prompt":"In src/auth.py... addresses goal bullet 1","framework":"{FRAMEWORK}"}},
@@ -998,6 +1101,34 @@ Do not inflate to 2-3 tasks if the goal is smaller; do not collapse to
         print("--- HR Agent: Assigning skills (agentspec not available) ---")
         tasks = run_hr_agent(tasks, skill_store, preferred_framework=FRAMEWORK)
         print_assignments(tasks)
+
+    # ── Step 1.6: Required-skills enforcement ────────────────────────────
+    # Tasks may declare `required_skills`: a list the resolved agent MUST
+    # have, or the task is blocked before it runs. Previously the HR
+    # agent / agentspec bridge tracked missing tools advisorily but never
+    # stopped a sprint — users saw mystery "agent didn't use X" failures
+    # on tasks that needed a tool that just wasn't in the environment.
+    # Now: fail-fast with a clear error.
+    tasks, blocked_tasks = _enforce_required_skills(tasks)
+    if blocked_tasks:
+        print()
+        print("--- ⚠️  Required-skills enforcement ---")
+        for bt in blocked_tasks:
+            print(
+                f"  BLOCKED {bt['id']}: missing {bt['missing']} "
+                f"(required: {bt['required']}, resolved: {bt['resolved']})"
+            )
+        if not tasks:
+            sys.stderr.write(
+                "\nAll tasks blocked by required-skills check. Aborting sprint.\n"
+                "Fix the environment (install missing CLIs / MCPs / API keys)\n"
+                "or adjust the PO's required_skills declarations.\n"
+            )
+            sys.exit(3)
+        print(
+            f"  Continuing with {len(tasks)} unblocked task(s); "
+            f"{len(blocked_tasks)} will be reported as blockers in retro.\n"
+        )
 
     # Register agents in version store (or load existing versions)
     print()

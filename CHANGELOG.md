@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.3.3 (2026-04-15)
+
+Closes the "advisory only" gap in agent skill resolution that has been
+the root cause of mystery tool-use failures in field reports.
+
+### Added
+
+- **`required_skills` on PO tasks.** Each task can now declare a list
+  of skills/tools the resolved agent MUST have. Before execution, the
+  orchestrator validates declared requirements against what the
+  resolver actually matched (union of HR-agent skills, tools_used,
+  and `agentspec.tools`). Tasks with missing skills are blocked with
+  a diagnostic record rather than run with a silently-weaker agent.
+  Sprint aborts (exit 3) when every task is blocked; continues with
+  the runnable subset otherwise, surfacing blocked tasks as retro
+  blockers. The PO prompt teaches this schema explicitly.
+- **Loud warning when agentspec isn't installed.** The HR-agent
+  keyword-matching fallback is strictly weaker than agentspec's
+  manifest resolver and produces correctly-shaped but incorrectly-
+  tooled tasks. The warning is now a multi-line stderr block with
+  `pip install agentspec-alpibru` instructions and the explicit
+  `CALORON_ALLOW_NO_AGENTSPEC=1` escape hatch for intentional
+  fallback (minimal CI environments).
+
+### Tests
+
+- 9 unit tests covering resolved-skill union logic, case-insensitive
+  matching, blocked-task reporting, and mixed-batch splits.
+- 116/116 suite green.
+
+### Notes on what's still advisory
+
+`agentspec.missing_tools` remains advisory and is NOT wired into the
+blocker flow — it's about *resolution* completeness, while
+`required_skills` is about *task contract*. Conflating them would be a
+design mistake. A future release may add a `required_mcps` or
+`required_auth` field on the same pattern if field reports demand it.
+
 ## 0.3.2 (2026-04-15)
 
 Adds a house-style conventions layer so teams with a standard way of
