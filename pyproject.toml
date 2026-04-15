@@ -76,6 +76,14 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Legacy orchestrator scripts predate the lint rules; don't touch them
 "orchestrator/*" = ["E701", "E722", "B904", "F401"]
+# Legacy stage business logic — migrated mechanically from stdin/stdout
+# shape to execute(input) in v0.3.4. Don't reshape behaviour as a side
+# effect of lint; the F841 unused locals were present in the originals.
+"stages/dag/*" = ["F841", "B007"]
+"stages/github/*" = ["F841"]
+"stages/retro/*" = ["F841"]
+"stages/supervisor/*" = ["F841"]
+"stages/kickoff/*" = ["F841"]
 # Tests can use bare except for unstable assertions
 "tests/*" = ["E722"]
 

@@ -6,67 +6,68 @@ Output: { state: Text, merged: Bool, review_state: Text, reviewers: List<Text> }
 
 Effects: [Network, Fallible]
 """
-import sys, json, os
-from urllib.request import Request, urlopen
+import json
+import os
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
-data = json.load(sys.stdin)
-repo = data["repo"]
-pr_number = int(data["pr_number"])
-token = os.environ.get(data.get("token_env", "GITHUB_TOKEN"), "")
 
-headers = {
-    "Authorization": f"token {token}",
-    "Accept": "application/vnd.github.v3+json",
-}
+def execute(input: dict) -> dict:
+    repo = input["repo"]
+    pr_number = int(input["pr_number"])
+    token = os.environ.get(input.get("token_env", "GITHUB_TOKEN"), "")
 
-# Get PR
-req = Request(
-    f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
-    headers=headers,
-)
-try:
-    with urlopen(req) as resp:
-        pr = json.loads(resp.read())
-except HTTPError as e:
-    json.dump({
-        "state": "error",
-        "merged": False,
-        "review_state": "unknown",
-        "reviewers": [],
-        "error": str(e),
-    }, sys.stdout)
-    sys.exit(0)
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
 
-state = pr.get("state", "unknown")  # open, closed
-merged = pr.get("merged", False)
-
-# Get reviews
-review_state = "pending"
-reviewers = []
-try:
+    # Get PR
     req = Request(
-        f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+        f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
         headers=headers,
     )
-    with urlopen(req) as resp:
-        reviews = json.loads(resp.read())
+    try:
+        with urlopen(req) as resp:  # noqa: S310
+            pr = json.loads(resp.read())
+    except HTTPError as e:
+        return {
+            "state": "error",
+            "merged": False,
+            "review_state": "unknown",
+            "reviewers": [],
+            "error": str(e),
+        }
 
-    for review in reviews:
-        reviewer = review.get("user", {}).get("login", "")
-        if reviewer and reviewer not in reviewers:
-            reviewers.append(reviewer)
-        rs = review.get("state", "").lower()
-        if rs == "approved":
-            review_state = "approved"
-        elif rs == "changes_requested":
-            review_state = "changes_requested"
-except HTTPError:
-    pass
+    state = pr.get("state", "unknown")  # open, closed
+    merged = pr.get("merged", False)
 
-json.dump({
-    "state": state,
-    "merged": merged,
-    "review_state": review_state,
-    "reviewers": reviewers,
-}, sys.stdout)
+    # Get reviews
+    review_state = "pending"
+    reviewers: list[str] = []
+    try:
+        req = Request(
+            f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+            headers=headers,
+        )
+        with urlopen(req) as resp:  # noqa: S310
+            reviews = json.loads(resp.read())
+
+        for review in reviews:
+            reviewer = review.get("user", {}).get("login", "")
+            if reviewer and reviewer not in reviewers:
+                reviewers.append(reviewer)
+            rs = review.get("state", "").lower()
+            if rs == "approved":
+                review_state = "approved"
+            elif rs == "changes_requested":
+                review_state = "changes_requested"
+    except HTTPError:
+        pass
+
+    return {
+        "state": state,
+        "merged": merged,
+        "review_state": review_state,
+        "reviewers": reviewers,
+    }

@@ -6,3 +6,5 @@ stage-specs/
 dist/
 .cli/
 compositions/full_cycle_resolved.json
+stage_ids.json
+compositions/sprint_tick_resolved.json

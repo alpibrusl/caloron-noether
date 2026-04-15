@@ -7,43 +7,44 @@ Output: { total_tasks, completed_tasks, completion_rate, sprint_days, tasks_per_
 
 Pure stage.
 """
-import sys, json
 from datetime import datetime
 
-data = json.load(sys.stdin)
-tasks = data["state"]["tasks"]
-started_at = data.get("started_at", "")
-ended_at = data.get("ended_at", "")
 
-total = len(tasks)
-completed = sum(1 for t in tasks.values() if t["status"] == "Done")
-escalated = sum(1 for t in tasks.values() if t["status"] in ("Escalated", "Blocked"))
-blocked = sum(1 for t in tasks.values() if t["status"] == "Blocked")
-total_interventions = sum(t.get("intervention_count", 0) for t in tasks.values())
+def execute(input: dict) -> dict:
+    data = input
+    tasks = data["state"]["tasks"]
+    started_at = data.get("started_at", "")
+    ended_at = data.get("ended_at", "")
 
-completion_rate = completed / total if total > 0 else 0.0
-avg_interventions = total_interventions / total if total > 0 else 0.0
+    total = len(tasks)
+    completed = sum(1 for t in tasks.values() if t["status"] == "Done")
+    escalated = sum(1 for t in tasks.values() if t["status"] in ("Escalated", "Blocked"))
+    blocked = sum(1 for t in tasks.values() if t["status"] == "Blocked")
+    total_interventions = sum(t.get("intervention_count", 0) for t in tasks.values())
 
-sprint_days = 0.0
-tasks_per_day = 0.0
-if started_at and ended_at:
-    try:
-        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
-        sprint_days = (end - start).total_seconds() / 86400
-        if sprint_days > 0:
-            tasks_per_day = completed / sprint_days
-    except Exception:
-        pass
+    completion_rate = completed / total if total > 0 else 0.0
+    avg_interventions = total_interventions / total if total > 0 else 0.0
 
-json.dump({
-    "total_tasks": total,
-    "completed_tasks": completed,
-    "completion_rate": round(completion_rate, 3),
-    "sprint_days": round(sprint_days, 1),
-    "tasks_per_day": round(tasks_per_day, 1),
-    "escalated_count": escalated,
-    "blocked_count": blocked,
-    "total_interventions": total_interventions,
-    "avg_interventions": round(avg_interventions, 2),
-}, sys.stdout)
+    sprint_days = 0.0
+    tasks_per_day = 0.0
+    if started_at and ended_at:
+        try:
+            start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
+            sprint_days = (end - start).total_seconds() / 86400
+            if sprint_days > 0:
+                tasks_per_day = completed / sprint_days
+        except Exception:
+            pass
+
+    return {
+        "total_tasks": total,
+        "completed_tasks": completed,
+        "completion_rate": round(completion_rate, 3),
+        "sprint_days": round(sprint_days, 1),
+        "tasks_per_day": round(tasks_per_day, 1),
+        "escalated_count": escalated,
+        "blocked_count": blocked,
+        "total_interventions": total_interventions,
+        "avg_interventions": round(avg_interventions, 2),
+    }
