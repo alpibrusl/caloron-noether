@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.4.2 (2026-04-16)
+
+Threads ``host`` through sprint_tick_stateful so the v0.4.1
+GitHub-or-Gitea targeting actually reaches the downstream stages.
+
+### Fixed
+
+- ``load_tick_state`` now accepts and passes through a ``host`` field;
+  sprint_tick_stateful's required input is now
+  ``{sprint_id, repo, stall_threshold_m, token_env, shell_url, host}``
+  (6 fields, was 5). Setting ``host`` to a Gitea API root e.g.
+  ``http://172.17.0.2:3000/api/v1`` makes every downstream github_*
+  stage in the composition target that backend instead of GitHub.
+  Default empty string preserves pre-0.4.2 behaviour (api.github.com).
+
+  Without this fix the v0.4.1 ``host`` parameter only reached
+  callers that invoked github_* stages directly — sprint_tick_stateful
+  would have ignored it because load_tick_state didn't forward it.
+
+### Tests
+
+- 2 new tests on load_tick_state covering host pass-through and the
+  empty-string default. 269/269 suite green.
+
+### How to run sprint_tick_stateful against local Gitea
+
+Now that the wiring is complete, the full invocation:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+export GITEA_TOKEN=...
+export CALORON_KV_DIR=/tmp/caloron-pilot-kv
+
+# Find the gitea container's bridge IP for direct host access:
+GITEA_IP=$(docker network inspect bridge \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin)[0];
+print([c["IPv4Address"].split("/")[0] for c in d["Containers"].values()
+       if "gitea" in c.get("Name","")][0])')
+
+noether run compositions/sprint_tick_stateful.json --input \
+  "{\"sprint_id\": \"pilot\", \"repo\": \"caloron/full-loop\",
+    \"stall_threshold_m\": 20, \"token_env\": \"GITEA_TOKEN\",
+    \"shell_url\": \"http://localhost:7710\",
+    \"host\": \"http://${GITEA_IP}:3000/api/v1\"}"
+```
+
+The composition still hasn't been live-validated end-to-end against a
+real Gitea container from a permissive environment — that's the next
+field-pilot opportunity.
+
 ## 0.4.1 (2026-04-16)
 
 Hot follow-up to v0.4.0 from the live-validation pilot: surfaced a real

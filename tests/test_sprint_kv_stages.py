@@ -52,6 +52,37 @@ def test_load_first_tick_returns_empty_state_defaults(kv_dir: Path):
     assert out["since"] == ""
 
 
+def test_load_passes_host_through_unchanged(kv_dir: Path):
+    """v0.4.2: ``host`` threads from scheduler input → load_tick_state →
+    sprint_tick_core's downstream github stages without further glue."""
+    out = load_tick_state.execute(
+        {
+            "sprint_id": "sprint-1",
+            "repo": "o/r",
+            "stall_threshold_m": 20,
+            "token_env": "GITEA_TOKEN",
+            "shell_url": "http://localhost:7710",
+            "host": "http://gitea.local:3000/api/v1",
+        }
+    )
+    assert out["host"] == "http://gitea.local:3000/api/v1"
+
+
+def test_load_defaults_host_to_empty_string(kv_dir: Path):
+    """No host given → empty string, which github_* stages interpret as
+    'use api.github.com'. Backwards-compatible with pre-0.4.2 callers."""
+    out = load_tick_state.execute(
+        {
+            "sprint_id": "sprint-1",
+            "repo": "o/r",
+            "stall_threshold_m": 20,
+            "token_env": "GITHUB_TOKEN",
+            "shell_url": "",
+        }
+    )
+    assert out["host"] == ""
+
+
 def test_load_reads_persisted_state(kv_dir: Path):
     kv_dir.mkdir(parents=True)
     (kv_dir / "sprint-1.json").write_text(

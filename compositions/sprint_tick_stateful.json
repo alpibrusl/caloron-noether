@@ -1,5 +1,5 @@
 {
-  "description": "Caloron sprint tick (stateful) \u2014 load persisted state from caloron's KV directory, run sprint_tick_core, save the updated state. Expected input from noether-scheduler: {sprint_id, repo, stall_threshold_m, token_env, shell_url}. State lives under $CALORON_KV_DIR (default $HOME/.caloron/kv).",
+  "description": "Caloron sprint tick (stateful) \u2014 load persisted state from caloron's KV directory, run sprint_tick_core, save the updated state. Expected scheduler input: {sprint_id, repo, stall_threshold_m, token_env, shell_url, host}. State lives under $CALORON_KV_DIR (default $HOME/.caloron/kv). `host` (v0.4.2) defaults to empty string \u2192 github_* stages use api.github.com; set to your Gitea API root to target a self-hosted forge.",
   "version": "0.1.0",
   "root": {
     "op": "Let",
@@ -9,7 +9,7 @@
         "stages": [
           {
             "op": "Stage",
-            "id": "3aa3acb602dc489bd851736c9d373a433fbb15059aac85370c2c3f83cad3cd38"
+            "id": "663c3c80d24e00a317a64036baf1a46da2311d59b2a6ca6a5479fe645a23c418"
           },
           {
             "op": "Let",

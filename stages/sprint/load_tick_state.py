@@ -8,11 +8,11 @@ sprint_tick_core without further glue.
 
 Input:
   { sprint_id: Text, repo: Text, stall_threshold_m: Number,
-    token_env: Text, shell_url: Text }
+    token_env: Text, shell_url: Text, host: Text }
 
 Output:
   { sprint_id: Text, repo: Text, stall_threshold_m: Number,
-    token_env: Text, shell_url: Text,
+    token_env: Text, shell_url: Text, host: Text,
     state: Any, agents: Any, interventions: Any, since: Text }
 
 Effects: [Fallible]
@@ -21,6 +21,12 @@ State lives under ``$CALORON_KV_DIR`` (default ``$HOME/.caloron/kv``),
 one JSON file per sprint namespaced by ``sprint_id``. Keeps sprint
 persistence in caloron's existing storage domain rather than splitting
 it across Noether's KV store.
+
+``host`` (added v0.4.2) passes through unchanged to the downstream
+github_* stages so the same composition can target either GitHub or a
+self-hosted Gitea — caller controls which by setting the input field.
+Default is empty string, which the github stages interpret as
+``https://api.github.com``.
 """
 
 import json
@@ -60,6 +66,10 @@ def execute(input: dict) -> dict:
         "stall_threshold_m": int(input.get("stall_threshold_m", 20)),
         "token_env": str(input.get("token_env", "GITHUB_TOKEN")),
         "shell_url": str(input.get("shell_url", "")),
+        # Pass-through for the github_* stages downstream. Empty string
+        # is the github stages' "use api.github.com" sentinel; callers
+        # targeting Gitea pass the API root explicitly.
+        "host": str(input.get("host", "")),
         "state": input.get("state") or persisted.get("state", {"tasks": {}}),
         "agents": input.get("agents") or persisted.get("agents", {}),
         "interventions": (

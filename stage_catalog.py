@@ -375,6 +375,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["stall_threshold_m", "Number"],
                 ["token_env", "Text"],
                 ["shell_url", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -384,6 +385,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["stall_threshold_m", "Number"],
                 ["token_env", "Text"],
                 ["shell_url", "Text"],
+                ["host", "Text"],
                 ["state", "Any"],
                 ["agents", "Any"],
                 ["interventions", "Any"],
