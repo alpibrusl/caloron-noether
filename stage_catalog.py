@@ -359,6 +359,73 @@ CATALOG: dict[str, dict[str, Any]] = {
         },
         "effects": [],
     },
+    "load_tick_state": {
+        "code_path": "stages/sprint/load_tick_state.py",
+        "description": "Load persisted sprint-tick state from caloron's KV directory.",
+        "input": {
+            "Record": [
+                ["sprint_id", "Text"],
+                ["repo", "Text"],
+                ["stall_threshold_m", "Number"],
+                ["token_env", "Text"],
+                ["shell_url", "Text"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["sprint_id", "Text"],
+                ["repo", "Text"],
+                ["stall_threshold_m", "Number"],
+                ["token_env", "Text"],
+                ["shell_url", "Text"],
+                ["state", "Any"],
+                ["agents", "Any"],
+                ["interventions", "Any"],
+                ["since", "Text"],
+            ]
+        },
+        "effects": ["Fallible"],
+    },
+    "save_tick_state": {
+        "code_path": "stages/sprint/save_tick_state.py",
+        "description": "Persist sprint-tick result to caloron's KV directory.",
+        "input": {
+            "Record": [
+                ["sprint_id", "Text"],
+                ["tick_result", "Any"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["actions_taken", {"List": "Text"}],
+                ["errors", {"List": "Text"}],
+                ["persisted_path", "Text"],
+            ]
+        },
+        "effects": ["Fallible"],
+    },
+    "build_tick_output": {
+        "code_path": "stages/sprint/build_tick_output.py",
+        "description": "Terminal reshape: accumulated tick scope into rich result record for persistence.",
+        "input": {
+            "Record": [
+                ["execute_result", "Any"],
+                ["eval", "Any"],
+                ["poll", "Any"],
+                ["supervisor", "Any"],
+            ]
+        },
+        "output": {
+            "Record": [
+                ["actions_taken", {"List": "Text"}],
+                ["errors", {"List": "Text"}],
+                ["state", "Any"],
+                ["polled_at", "Text"],
+                ["interventions", "Any"],
+            ]
+        },
+        "effects": [],
+    },
     "project_all_to_execute": {
         "code_path": "stages/sprint/project_all_to_execute.py",
         "description": "Reshape accumulated sprint-tick scope into execute_actions input.",

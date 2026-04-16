@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.4.0 (2026-04-16)
+
+Major: the sprint-tick loop is Noether-native now. Plus testability
+infrastructure for the remaining blind spots.
+
+### Added
+
+- **`sprint_tick_core.json`** — pure Noether composition for one
+  pass of the per-minute sprint tick. Uses nested `Let` bindings with
+  typed reshape stages at each boundary, so each domain stage
+  (`github_poll_events`, `dag_evaluate`, `check_agent_health`,
+  `decide_intervention`, `execute_actions`) keeps its minimal input
+  contract while the composition threads data between them. End-to-end
+  type-checks against Noether v0.3.1 in 8 steps.
+- **`sprint_tick_stateful.json`** — KV-wrapped variant that reads
+  persisted state before the tick and writes it after, so
+  noether-scheduler can drive caloron end-to-end across reboots. State
+  lives under `$CALORON_KV_DIR` (default `~/.caloron/kv/`), one JSON
+  file per sprint namespaced by `sprint_id`. Scheduler input is just
+  `{sprint_id, repo, stall_threshold_m, token_env, shell_url}` —
+  everything else (state, agents, interventions, since) comes from
+  disk.
+- **Seven reshape / KV stages** under `stages/sprint/` implementing
+  the composition: `project_poll_to_eval`,
+  `project_health_to_intervention`, `project_all_to_execute`,
+  `build_tick_output`, `load_tick_state`, `save_tick_state`. All
+  declared in `stage_catalog.py` and registered by
+  `register_stages.sh` alongside the legacy 20.
+- **Stub agent framework** (`orchestrator/orchestrator.py` +
+  `scripts/stub_agent.py`) — a deterministic fixture-driven framework
+  entry replayable from JSON. Unlocks end-to-end integration tests
+  that drive `orchestrator.main()` without a live LLM, closing the
+  "mystery mid-sprint behaviour" blind spot flagged in v0.3.1.
+
+### Fixed
+
+- **Deprecated the original `sprint_tick.json`** — its stage-ID
+  references hadn't been valid since Noether v0.3's hash scheme
+  changed. Kept in place with a `_deprecated` marker pointing at the
+  replacement until docs and demo cast files are updated; will be
+  deleted in v0.5.
+
+### Tests
+
+- 12 unit tests on the new KV-persistence stages (cold-start
+  defaults, atomic writes, per-sprint isolation, malformed-file
+  tolerance, caller-override precedence, save→load round-trip).
+- 8 unit/integration tests on the stub framework (registry entry,
+  argv construction, PO returns DAG, reviewer returns APPROVED,
+  agent feedback envelope parseable, fixture missing/corrupt
+  handling).
+- 7 tests on the sprint-tick reshape stages (shape conversion
+  correctness, default handling for first-tick case).
+
+Total: **251 tests green** (up from 200 in v0.3.3). Lint clean.
+
+### Scope notes
+
+- `sprint_tick_stateful.json` uses caloron's own KV directory rather
+  than Noether's built-in KV stages. Two reasons: matches
+  orchestrator.py's existing file-based state model (learnings.json,
+  etc.), and avoids requiring Noether KV to be wired into every
+  caloron deployment. A Noether-KV variant is straightforward if
+  needed later (swap the two stages).
+- The stub framework is not a replacement for real sprints — it
+  produces whatever the fixture dictates and has no reasoning. Its
+  job is deterministic regression coverage of the sprint loop wiring,
+  not sprint quality.
+
 ## 0.3.3 (2026-04-15)
 
 Closes the "advisory only" gap in agent skill resolution that has been

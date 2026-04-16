@@ -1,5 +1,5 @@
 {
-  "description": "Caloron sprint tick (core) \u2014 one pass of: poll GitHub \u2192 advance DAG \u2192 check agent health \u2192 decide interventions \u2192 execute actions. Stateless; caller supplies current state and persists the result.",
+  "description": "Caloron sprint tick (core) \u2014 one pass of: poll GitHub \u2192 advance DAG \u2192 check agent health \u2192 decide interventions \u2192 execute actions \u2192 emit rich tick-result. Stateless; caller supplies current state and persists the result (see sprint_tick_stateful.json for the KV-wrapped variant).",
   "version": "0.1.0",
   "root": {
     "op": "Let",
@@ -52,17 +52,26 @@
             }
           },
           "body": {
-            "op": "Sequential",
-            "stages": [
-              {
-                "op": "Stage",
-                "id": "368dc85ce4cdf25d2fceee5b59d84e4593c6a181face136ea5956f335466169e"
-              },
-              {
-                "op": "Stage",
-                "id": "a9c3321131fe4ec3cb7c97b61308f0a27e8970ae8afd4dd677318bcaeba00fdc"
+            "op": "Let",
+            "bindings": {
+              "execute_result": {
+                "op": "Sequential",
+                "stages": [
+                  {
+                    "op": "Stage",
+                    "id": "368dc85ce4cdf25d2fceee5b59d84e4593c6a181face136ea5956f335466169e"
+                  },
+                  {
+                    "op": "Stage",
+                    "id": "a9c3321131fe4ec3cb7c97b61308f0a27e8970ae8afd4dd677318bcaeba00fdc"
+                  }
+                ]
               }
-            ]
+            },
+            "body": {
+              "op": "Stage",
+              "id": "331d4bebbf8ed3e92f9f10da07256f020ea6d79877f5da9d3c5f3793abcb1190"
+            }
           }
         }
       }

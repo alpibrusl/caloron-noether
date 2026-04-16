@@ -139,6 +139,25 @@ FRAMEWORKS = {
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": None,
     },
+    # ─────────────────────────────────────────────────────────────────────
+    # Test-only: deterministic stub agent.
+    #
+    # Reads a canned response fixture from $CALORON_STUB_FIXTURE and
+    # replays it on stdout, making end-to-end sprint loops runnable
+    # without a live LLM CLI. The stub binary is a tiny Python script
+    # shipped under ``scripts/stub_agent.py``. Used exclusively by
+    # tests/test_sprint_chain_integration.py and any future full-loop
+    # CI runs.
+    #
+    # Do NOT use this framework in production sprints — it has no
+    # reasoning ability and will produce whatever the fixture dictates.
+    "stub": {
+        "cmd": "python3",
+        "args": [str(Path(__file__).parent.parent / "scripts" / "stub_agent.py")],
+        "prompt_flag": "--prompt",
+        "api_key_env": "CALORON_STUB_FIXTURE",
+        "api_key_flag": None,
+    },
 }
 
 

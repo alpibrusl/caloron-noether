@@ -1,0 +1,98 @@
+{
+  "description": "Caloron sprint tick (stateful) \u2014 load persisted state from caloron's KV directory, run sprint_tick_core, save the updated state. Expected input from noether-scheduler: {sprint_id, repo, stall_threshold_m, token_env, shell_url}. State lives under $CALORON_KV_DIR (default $HOME/.caloron/kv).",
+  "version": "0.1.0",
+  "root": {
+    "op": "Let",
+    "bindings": {
+      "tick_result": {
+        "op": "Sequential",
+        "stages": [
+          {
+            "op": "Stage",
+            "id": "3aa3acb602dc489bd851736c9d373a433fbb15059aac85370c2c3f83cad3cd38"
+          },
+          {
+            "op": "Let",
+            "bindings": {
+              "poll": {
+                "op": "Stage",
+                "id": "3634f9acd193c77d4c4a29c3665897ac496e28f5f5aba821040eec7fac74f085"
+              }
+            },
+            "body": {
+              "op": "Let",
+              "bindings": {
+                "eval": {
+                  "op": "Sequential",
+                  "stages": [
+                    {
+                      "op": "Stage",
+                      "id": "3b3d60ca653a1e3e9730470d86b17dc5e3534fabf13e39c57cb0bd90ed59701b"
+                    },
+                    {
+                      "op": "Stage",
+                      "id": "151f096db2ccb66365ce410abaa6293056560a00f0e8ee415e9524b6fa16f5ac"
+                    }
+                  ]
+                }
+              },
+              "body": {
+                "op": "Let",
+                "bindings": {
+                  "health": {
+                    "op": "Stage",
+                    "id": "ff7dce411aff14f72e0845b846c048d9621ed7f4d2ce4352155db207bab759ce"
+                  }
+                },
+                "body": {
+                  "op": "Let",
+                  "bindings": {
+                    "supervisor": {
+                      "op": "Sequential",
+                      "stages": [
+                        {
+                          "op": "Stage",
+                          "id": "d5a3d83babf00ea024e38d59836df644e0a6aae49d680de8021da374a7313ca5"
+                        },
+                        {
+                          "op": "Stage",
+                          "id": "bc5f4ae8e12d9404c9bb956a58a5dbb731c344bf09f37bbcc1414cd54d7c20ae"
+                        }
+                      ]
+                    }
+                  },
+                  "body": {
+                    "op": "Let",
+                    "bindings": {
+                      "execute_result": {
+                        "op": "Sequential",
+                        "stages": [
+                          {
+                            "op": "Stage",
+                            "id": "368dc85ce4cdf25d2fceee5b59d84e4593c6a181face136ea5956f335466169e"
+                          },
+                          {
+                            "op": "Stage",
+                            "id": "a9c3321131fe4ec3cb7c97b61308f0a27e8970ae8afd4dd677318bcaeba00fdc"
+                          }
+                        ]
+                      }
+                    },
+                    "body": {
+                      "op": "Stage",
+                      "id": "331d4bebbf8ed3e92f9f10da07256f020ea6d79877f5da9d3c5f3793abcb1190"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "body": {
+      "op": "Stage",
+      "id": "a1c41f8dc1de5b3292daf3a01e08b1f2cc74ede67382ad111030482aaf615211"
+    }
+  }
+}
