@@ -65,6 +65,8 @@ nav:
     - Stage Catalog: reference/stage-catalog.md
     - KV Conventions: reference/kv-conventions.md
     - Scheduler: reference/scheduler.md
+    - Shell HTTP API: reference/shell-api.md
   - Examples:
+    - End-to-End Sprint: examples/e2e-sprint.md
     - Comparison Test: examples/comparison.md
   - vs Original Caloron: comparison.md

@@ -1,103 +1,121 @@
 # Caloron-Noether
 
-**Multi-Agent Orchestration via Noether Composition Graphs**
+**Multi-agent sprint orchestration. Two entry points: a Python orchestrator
+(`caloron sprint`) for the runs people actually do today, and a set of
+Noether composition graphs for the cron-driven path the platform is
+moving towards.**
 
-Caloron-Noether is a reimplementation of the [Caloron](https://github.com/alpibrusl/caloron) orchestration platform where all business logic is expressed as [Noether](https://github.com/alpibrusl/noether) composition graphs. The only native code is a ~200-line Rust HTTP server for process management.
+Caloron-Noether reimplements the [Caloron](https://github.com/alpibrusl/caloron)
+orchestration platform with all sprint-internal business logic expressed
+as [Noether](https://github.com/alpibrusl/noether) composition stages.
+~200 lines of Rust manage agent processes; everything else is Python
+stages or Python orchestration.
 
-## Why This Exists
+## What you can do today
 
-The original Caloron is ~9,300 lines of Rust. About 65% is business logic (event handling, DAG evaluation, supervisor decisions, retro analysis) that maps naturally to **typed, content-addressed, effect-tracked pipelines** — which is exactly what Noether provides.
+| Path | Maturity | Use it for |
+|------|----------|------------|
+| `caloron sprint "<goal>"` (Python orchestrator) | **Production** | Real sprints — what every field user runs |
+| `noether run compositions/full_cycle_resolved.json` (phase pipeline) | **Working** | Architect → dev → review → flatten as a Noether composition |
+| `noether run compositions/sprint_tick_stateful.json` (per-tick loop) | **Type-checks; pilot pending** | Cron-driven scheduler ticks against Gitea or GitHub |
 
-```
-Original Caloron          →  Caloron-Noether
-─────────────────            ─────────────────
-9,300 lines Rust             ~1,200 lines (Python + Rust shell)
-Hand-written event loop      noether-scheduler (cron)
-In-memory DaemonState        Noether KV store (SQLite)
-Custom type system           Noether structural typing
-Manual caching               Pure-stage output cache
-```
+The Python orchestrator is what's been battle-tested across multiple
+field sprints. The composition paths are how caloron is moving toward
+a Noether-native, scheduler-driven runtime; v0.4.x got the wiring to
+the point where they type-check end-to-end and individual stages run
+correctly. End-to-end live validation against a real Gitea is the
+remaining piece.
 
-## How It Works
-
-```mermaid
-graph TB
-    SCH[noether-scheduler] -->|every 60s| TICK[sprint_tick.json]
-    TICK --> POLL[github_poll_events]
-    TICK --> EVAL[dag_evaluate]
-    TICK --> HEALTH[check_agent_health]
-    TICK --> ACTIONS[execute_actions]
-    ACTIONS -->|POST /spawn| SHELL[caloron-shell]
-    SHELL --> HARNESS[caloron-harness]
-    HARNESS -->|POST /heartbeat| SHELL
-    
-    KV[(Noether KV)] -.-> TICK
-    TICK -.-> KV
-```
-
-1. **noether-scheduler** runs `sprint_tick.json` every 60 seconds
-2. The composition graph polls GitHub, evaluates the DAG, checks health, and dispatches actions
-3. **caloron-shell** manages agent processes (spawn/kill) and receives heartbeats
-4. All state lives in the **Noether KV store** — no in-memory state to lose
-
-## Quick Start
-
-Caloron-Noether requires [Noether](https://alpibrusl.github.io/noether/) v0.3.0+ — both `noether` and `noether-scheduler` on `PATH`.
+## Quick start
 
 ```bash
-# 1. Install Noether (CLI + scheduler)
-cargo install noether-cli noether-scheduler
-# or grab prebuilt binaries: https://github.com/alpibrusl/noether/releases/latest
-
-# 2. (Optional) Use the hosted stage registry
-export NOETHER_REGISTRY=https://registry.alpibru.com
-
-# 3. Register custom stages
-./register_stages.sh
-
-# 4. Build the shell
-cargo build -p caloron-shell
-
-# 5. Start the shell
-./target/debug/caloron-shell &
-
-# 6. Run a sprint tick manually
-noether run compositions/sprint_tick.json \
-  --input '{"sprint_id": "test", "repo": "owner/repo", "stall_threshold_m": 20}'
-
-# 7. Or start the scheduler for continuous operation
-#    (see https://alpibrusl.github.io/noether/guides/scheduler/)
-noether-scheduler --config scheduler.json
+pip install caloron-alpibru        # the CLI
+cargo install noether-cli          # only needed for the composition paths
 ```
+
+Then either drive a real sprint via the CLI:
+
+```bash
+caloron init my-project --framework claude-code
+caloron sprint "Build a Python module with is_palindrome. Include tests."
+caloron status
+```
+
+Or run a phase composition through Noether:
+
+```bash
+./register_stages.sh        # registers ~28 caloron stages with the local Noether store
+./register_phases.sh        # registers the architect/dev/review/flatten chain
+
+noether run compositions/full_cycle_resolved.json --input \
+  '{"goal": "Build a HealthCheck and a LoggingAdapter.", "constraints": ""}'
+```
+
+The `caloron sprint` path requires a running Gitea container — see
+[Getting Started](guide/getting-started.md) for the full setup.
+
+## Stage catalog (live count: ~28)
+
+| Category | Examples | Effects |
+|----------|----------|---------|
+| **Phase POs** | `architect_po`, `dev_po`, `review_po`, `design_po`, `phases_to_sprint_tasks` | Llm, Pure |
+| **Sprint glue** | `load_tick_state`, `save_tick_state`, `build_tick_output`, plus 3 reshape stages | Pure / Fallible |
+| **DAG** | `dag_evaluate`, `dag_is_complete`, `dag_validate`, `unblocked_tasks`, `execute_actions` | Pure / Network |
+| **GitHub / Gitea** | `github_poll_events`, `_create_issue`, `_post_comment`, `_add_label`, `_merge_pr`, `get_pr_status` | Network, Fallible |
+| **Supervisor** | `check_agent_health`, `decide_intervention`, `compose_intervention_message` | Pure |
+| **Retro** | `collect_sprint_feedback`, `compute_sprint_kpis`, `analyze_sprint_feedback`, `write_retro_report` | Pure / Llm / Network |
+| **Kickoff** | `fetch_repo_context`, `generate_sprint_dag` | Network / Llm |
+
+The github / kickoff stages take an optional `host` field — set to a
+Gitea API root (e.g. `http://172.17.0.2:3000/api/v1`) to target a
+self-hosted forge; defaults to `https://api.github.com`.
+
+See [Stage Catalog](reference/stage-catalog.md) for full I/O signatures.
+
+## Composition graphs
+
+| Composition | Purpose |
+|-------------|---------|
+| `full_cycle.json` / `full_cycle_resolved.json` | The phase pipeline: `design_po → architect_po → dev_po → review_po → phases_to_sprint_tasks` — emits a typed task list ready for the orchestrator |
+| `sprint_plan.json` | Architect + dev only (skips review). Lighter alternative for one-shot planning |
+| `sprint_tick_core.json` | Pure per-tick loop: poll → evaluate → health → intervene → execute. Stateless; caller supplies state |
+| `sprint_tick_stateful.json` | KV-wrapped variant: load state → run sprint_tick_core → save. What the scheduler is meant to call once live-piloted |
+| `sprint_tick.json` | **Deprecated** — original v0.1 stub; kept for doc references only |
 
 ## CLI
 
-`pip install caloron-noether` exposes the `caloron` command — an ACLI-compliant frontend for project, sprint, and metrics management:
-
 ```bash
-caloron init my-project --backend noether
-caloron sprint "Build a hotel rate anomaly detector"
+caloron init <name> --framework claude-code
+caloron sprint "<goal>" [--graph <composition>] [--po-timeout auto|<seconds>] [--debug]
 caloron status
 caloron history --limit 10
-caloron show 5
+caloron show <sprint-id>
 caloron metrics --output json
 caloron agents
-caloron projects list | switch | delete
+caloron projects {list, switch, delete}
 caloron config get|set <key> [value]
+caloron org {init, show, validate}    # organisation-wide conventions
 ```
 
-All commands support `--output text|json|table`.
+All commands accept `--output text|json|table`. Conventions configured
+via `caloron org init` are injected into every agent prompt — see the
+[v0.3.2 changelog entry](https://github.com/alpibrusl/caloron-noether/blob/main/CHANGELOG.md)
+for the schema.
 
-## Stage Overview
+## Where things live
 
-| Category | Stages | Effects | Lines |
-|----------|--------|---------|-------|
-| DAG | evaluate, is_complete, validate | Pure | ~240 |
-| GitHub | poll_events, create_issue, post_comment, add_label, merge_pr | Network | ~250 |
-| Supervisor | check_health, decide_intervention, compose_message | Pure | ~140 |
-| Retro | collect_feedback, compute_kpis, write_report | Pure/Network | ~170 |
-| Kickoff | fetch_repo_context, generate_dag | Network/LLM | ~100 |
-| **Total** | **16 stages** | | **~900** |
-
-All stages start as Python. When schemas stabilize, they can be promoted to Rust via `InlineRegistry` — zero graph changes needed.
-
+```
+caloron/                Python CLI package (caloron-alpibru on PyPI)
+orchestrator/           Production sprint runner (orchestrator.py + helpers)
+stages/                 Noether stage sources (~28 stages, hermetic Python)
+  phases/               LLM-driven planning stages (architect/dev/review)
+  sprint/               Sprint-tick reshape + KV stages
+  dag/, github/, supervisor/, retro/, kickoff/   Domain stages
+compositions/           Noether composition graphs (JSON)
+shell/                  ~200-line Rust HTTP server (heartbeat + spawn)
+scripts/                Sandbox scripts + stub_agent.py for testing
+templates/              Project scaffolds (FastAPI, CLI, Next.js, Rust, etc.)
+stage_catalog.py        v0.3 spec declarations for register_stages.sh
+register_stages.sh      Registers domain stages with Noether
+register_phases.sh      Registers phase + reshape stages
+```

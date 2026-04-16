@@ -25,11 +25,12 @@ Same sprint as [caloron](https://asciinema.org/a/ZsYVCt7uFAiTnEoP), different ba
 ## Recording Your Own
 
 ```bash
-CALORON_BACKEND=noether \
-NOETHER_STAGES_DIR=./stages \
 asciinema rec my-demo.cast \
-  -c "python3 examples/orchestrator.py 'your goal here'"
+  -c "caloron sprint 'your goal here'"
 ```
+
+(Pre-v0.2 docs referenced `examples/orchestrator.py`. That entry-point
+moved into the `caloron` CLI as `caloron sprint`.)
 
 ## Also See
 

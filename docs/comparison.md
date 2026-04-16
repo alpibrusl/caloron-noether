@@ -6,31 +6,31 @@ Caloron-Noether is a reimplementation of [Caloron](https://github.com/alpibrusl/
 
 | | Caloron (Rust) | Caloron-Noether |
 |---|---|---|
-| **Total code** | ~9,300 lines Rust | ~1,200 lines (Python + Rust) |
-| **Business logic** | Rust modules | Noether composition graphs |
-| **State** | In-memory + JSON files | Noether KV store (SQLite) |
-| **Orchestration** | Async Rust event loop | noether-scheduler (cron) |
-| **Type checking** | Rust compiler | Noether graph type checker |
-| **Caching** | Manual | Automatic (Pure stage cache) |
-| **Process mgmt** | Integrated in daemon | Separate shell (~200 LOC) |
+| **Total code** | ~9,300 lines Rust | ~28 stages (~2k Python) + 200-line Rust shell + Python orchestrator |
+| **Business logic** | Rust modules | Python stages composed via Noether graphs (or driven directly by `orchestrator.py`) |
+| **State** | In-memory + JSON files | Caloron KV directory (`~/.caloron/kv/`); orchestrator also uses a per-project workspace dir |
+| **Orchestration** | Async Rust event loop | Two paths: production `caloron sprint` (Python orchestrator) and `noether-scheduler`-driven composition tick (newer, type-checks end-to-end; live pilot pending) |
+| **Type checking** | Rust compiler | Noether graph type checker (compositions); runtime JSON checks (orchestrator) |
+| **Caching** | Manual | Pure-stage output cache (Noether) |
+| **Process mgmt** | Integrated in daemon | Separate shell (~200 LOC Rust) |
 | **Agent harness** | Unix socket heartbeat | HTTP heartbeat |
-| **Testing** | `cargo test` (192 tests) | `echo JSON \| python3` + Gitea e2e |
+| **Testing** | `cargo test` (192 tests) | `pytest` (269 tests, in-tree) + stub-framework integration harness |
 
 ## What Moved Where
 
-| Original File | Lines | Replacement | Lines |
+| Original File | Lines | Replacement | Notes |
 |--------------|-------|-------------|-------|
-| `daemon/orchestrator.rs` | 404 | `sprint_tick.json` + scheduler | 60 |
-| `daemon/socket.rs` | 345 | `shell/heartbeat_server.rs` | 50 |
-| `daemon/state.rs` | 71 | KV store (stdlib) | 0 |
-| `git/monitor.rs` | 680 | `poll_events.py` + `evaluate.py` | 230 |
-| `git/client.rs` | 237 | 5 GitHub stages | 250 |
-| `dag/engine.rs` | 627 | `evaluate.py` | 130 |
-| `retro/` (5 files) | 2,083 | 3 retro stages | 170 |
-| `supervisor/` (4 files) | 934 | 3 supervisor stages | 140 |
-| `kickoff/` (2 files) | 514 | 2 kickoff stages | 100 |
-| `agent/spawner.rs` | 336 | `shell/spawner.rs` | 100 |
-| `main.rs` | 433 | `shell/main.rs` | 80 |
+| `daemon/orchestrator.rs` | 404 | `orchestrator/orchestrator.py` (production) + `sprint_tick_stateful.json` (composition path) | Two implementations |
+| `daemon/socket.rs` | 345 | `shell/heartbeat_server.rs` | HTTP instead of Unix socket |
+| `daemon/state.rs` | 71 | Caloron KV (file-based) | One JSON per sprint |
+| `git/monitor.rs` | 680 | `poll_events.py` + `evaluate.py` | Stages |
+| `git/client.rs` | 237 | 6 GitHub/Gitea stages | `host` parameter targets either backend |
+| `dag/engine.rs` | 627 | `evaluate.py` + 4 helper stages | Stages |
+| `retro/` (5 files) | 2,083 | 4 retro stages | Now includes LLM-driven feedback analysis |
+| `supervisor/` (4 files) | 934 | 3 supervisor stages | Stages |
+| `kickoff/` (2 files) | 514 | 2 kickoff stages + 5 phase POs (architect/dev/review/design/flatten) | Phase pipeline is new |
+| `agent/spawner.rs` | 336 | `shell/spawner.rs` | Rust |
+| `main.rs` | 433 | `shell/main.rs` | Rust |
 
 ## What Did NOT Change
 

@@ -249,10 +249,10 @@ Shows the detailed profile — every memory (retro finding), every portfolio ent
 
 Caloron's CLI is ACLI-compliant. An assistant that can run shell commands can kick off sprints and read the retros.
 
-Generate the skill file:
+Generate a skill file (the structured CLI tree, machine-readable):
 
 ```bash
-caloron skill > CALORON_SKILLS.md
+caloron introspect --output json > CALORON_SKILLS.json
 ```
 
 ### Claude Code

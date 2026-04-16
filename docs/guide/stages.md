@@ -1,100 +1,85 @@
 # Stages
 
-Every piece of business logic is a Noether stage — a typed function that reads JSON from stdin and writes JSON to stdout.
+Every piece of business logic is a Noether stage — a typed Python
+function that takes an input dict and returns an output dict. Noether
+wraps it with type checking, effect tracking, and output caching.
 
-## Stage Contract
+## Stage contract
 
 ```python
-#!/usr/bin/env python3
-import sys, json
+"""<one-line description>.
 
-input_data = json.load(sys.stdin)
-# ... logic ...
-json.dump(output_data, sys.stdout)
+Input:  { ...declared types... }
+Output: { ...declared types... }
+
+Effects: [Pure] / [Network, Fallible] / [Llm, NonDeterministic] / ...
+"""
+
+def execute(input: dict) -> dict:
+    # ... logic ...
+    return {...}
 ```
 
-Noether wraps this with type checking, effect tracking, and output caching.
+That's the whole contract. **Do not** read from `sys.stdin` or write to
+`sys.stdout` — Noether's runner handles I/O for you. (Pre-v0.3.4 stages
+did read stdin directly; that pattern was migrated out because Noether's
+synthesised wrapper double-consumed the pipe. See the
+v0.3.4 changelog for the full story.)
 
-## DAG Stages (Pure)
+## Hermeticity
 
-No side effects. Deterministic. Cached by input hash.
+Stages run from `~/.noether/impl_cache/` with no access to the source
+repo's layout. **No cross-module imports**: `from stages.phases._llm
+import call_llm` works in unit tests but breaks at runtime. The
+phase stages handle this by inlining their LLM helper at registration
+time (see `register_phases.sh`'s `_inline_helper`).
 
-### `dag_evaluate`
+## Effects
 
-Advances task states based on GitHub events.
+Declared per stage; Noether's type checker propagates them across
+compositions. Common effect names (Noether v0.3.1+ accepts both bare
+strings and capitalised forms):
 
-- **Input:** `{ state: DagState, events: List<Event>, stall_threshold_m: Number }`
-- **Output:** `{ state: DagState, actions: List<Action> }`
-- Handles: PR merge → Done, PR open → InReview, dependency unblocking, stall detection
+- `Pure` — deterministic, cached by input hash
+- `Fallible` — may raise
+- `Network` — does I/O
+- `Llm`, `NonDeterministic` — LLM call; not cached
 
-### `dag_is_complete`
+Use `noether run --allow-effects pure,network` to gate which effects a
+composition is allowed to perform.
 
-- **Input:** `{ state: DagState }`
-- **Output:** `{ complete: Bool, total: Number, done: Number }`
+## The catalog
 
-### `dag_validate`
+See [Stage Catalog](../reference/stage-catalog.md) for the full list of
+~28 stages with input/output signatures.
 
-Cycle detection and reference checking.
+## Testing a stage in isolation
 
-- **Input:** `{ dag: DagState }`
-- **Output:** `{ valid: Bool, errors: List<Text> }`
-
-## GitHub Stages (Network, Fallible)
-
-All use `GITHUB_TOKEN` from environment. Work with both GitHub and Gitea APIs.
-
-| Stage | Input | Output |
-|-------|-------|--------|
-| `poll_events` | repo, since, token_env | events, polled_at |
-| `create_issue` | repo, title, body, labels | issue_number, url |
-| `post_comment` | repo, issue_number, body | comment_id, url |
-| `add_label` | repo, issue_number, label | ok |
-| `merge_pr` | repo, pr_number | merged, merge_commit |
-
-## Supervisor Stages (Pure)
-
-### `check_agent_health`
-
-Classifies each agent as healthy, stalled, or missing.
-
-- **Input:** `{ agents: Map, stall_threshold_m: Number }`
-- **Output:** `{ results: List<{ agent_id, status, minutes_since }> }`
-
-### `decide_intervention`
-
-Implements the probe → restart → escalate ladder.
-
-- **Input:** `{ results: List, interventions: Map }`
-- **Output:** `{ actions: List<{ agent_id, action, reason }> }`
-
-### `compose_intervention_message`
-
-Generates a GitHub comment for the intervention.
-
-- **Input:** `{ agent_id, task_title, health_status, action }`
-- **Output:** `{ message: Text }`
-
-## Retro Stages
-
-| Stage | Effects | Description |
-|-------|---------|-------------|
-| `collect_feedback` | Network | Fetch feedback YAML from issue comments |
-| `compute_kpis` | Pure | Completion rate, velocity, interventions |
-| `write_report` | Pure | Generate Markdown retro report |
-
-## Kickoff Stages
-
-| Stage | Effects | Description |
-|-------|---------|-------------|
-| `fetch_repo_context` | Network | Repo description, commits, languages |
-| `generate_dag` | Pure/LLM | Generate DAG from brief (template-based or LLM) |
-
-## Testing Stages
-
-Each stage can be tested directly:
+The simplest way is to import and call it:
 
 ```bash
-echo '{"state": {"tasks": {"t1": {"status": "Pending", "depends_on": []}}}, "events": [], "stall_threshold_m": 20}' \
-  | python3 stages/dag/evaluate.py \
-  | python3 -m json.tool
+python3 -c "
+import sys; sys.path.insert(0, 'stages/dag')
+from is_complete import execute
+print(execute({'state': {'tasks': {'t1': {'status': 'Done'}}}}))
+"
 ```
+
+For stages that need a Noether-style harness (e.g. testing under
+`noether run`), either register the stage with a fresh local store and
+call `noether run` on a single-stage composition, or use the unit-test
+patterns in `tests/test_*.py`.
+
+## Adding a new stage
+
+1. Drop the Python file under `stages/<category>/<name>.py` with the
+   shape above.
+2. Add an entry to `stage_catalog.py` declaring its input/output Record
+   shape and effects.
+3. Re-run `./register_stages.sh` to register it with Noether.
+4. Add unit tests under `tests/`.
+5. (Optional) Reference it from a composition graph by its hash.
+
+`tests/test_stage_catalog.py` enforces three invariants automatically:
+the catalog matches what's on disk, every stage exposes `execute()`,
+and no stage reads stdin directly.

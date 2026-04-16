@@ -1,74 +1,122 @@
 # Getting Started
 
-## Prerequisites
+Two paths, depending on what you want to do.
 
-- **Python 3.11+** (stages run as Python scripts)
-- **Rust 1.75+** (for the shell binary)
-- **Noether v0.3.0+** — `noether` CLI and `noether-scheduler` on `PATH`. See the [Noether docs](https://alpibrusl.github.io/noether/).
-- **Docker** (for Gitea, or use GitHub)
-- **Claude Code** (Pro subscription or `ANTHROPIC_API_KEY`)
+## Path A — Run a real sprint (production)
 
-## Installation
+This is what every field user actually does. The Python orchestrator
+(`caloron sprint`) drives the full loop against a Gitea container and
+your authenticated coding-agent CLI.
+
+### Prerequisites
+
+- **Python 3.11+**
+- **Docker** (for the Gitea container)
+- **An authenticated coding agent on `$PATH`** — `claude`, `gemini`,
+  `cursor-agent`, `opencode`, `aider`, or `codex`. Best-tested by far
+  is `claude` (Pro/Max subscription or `ANTHROPIC_API_KEY`); other
+  frameworks are wired but not yet field-validated.
+
+### Install + start Gitea
 
 ```bash
-git clone https://github.com/alpibrusl/caloron-noether
-cd caloron-noether
+pip install caloron-alpibru
 
-# Install Noether (CLI + scheduler)
+# Start a local Gitea container if you don't already have one:
+docker run -d --name gitea -p 3000:3000 -p 222:22 gitea/gitea:1.22
+
+# Create a token at http://localhost:3000/-/user/settings/applications
+# and either set GITEA_TOKEN or accept the dev-mode default (caloron's
+# orchestrator carries one for local development).
+```
+
+### Run a sprint
+
+```bash
+caloron init my-project --framework claude-code
+caloron sprint "Build a Python module with is_palindrome. Include tests."
+caloron status
+```
+
+The orchestrator handles: PO planning → agent spawning under sandbox →
+PR creation in Gitea → reviewer cycle → merge → retro → learnings
+persisted for the next sprint. Hooked into `caloron metrics`,
+`caloron history`, etc.
+
+### Optional: organisation conventions
+
+```bash
+caloron org init           # writes ~/.caloron/organisation.yml
+caloron org show           # preview the prompt block agents will see
+```
+
+Edit the YAML to declare your house style (package naming, license
+headers, dependency policy). Every sprint will inject those rules into
+the PO, agent, and reviewer prompts. See
+[organisation.yml schema](https://github.com/alpibrusl/caloron-noether/blob/main/caloron/organisation.py).
+
+## Path B — Run a Noether composition (the new path)
+
+If you want to drive sprints via Noether compositions (and eventually
+`noether-scheduler` on a cron), you also need Noether installed:
+
+```bash
 cargo install noether-cli noether-scheduler
-# or download prebuilt binaries from
-#   https://github.com/alpibrusl/noether/releases/latest
+# or grab prebuilt binaries from
+# https://github.com/alpibrusl/noether/releases/latest
 
 # (Optional) point at the hosted stage registry
 export NOETHER_REGISTRY=https://registry.alpibru.com
 
-# Build the shell
-cargo build -p caloron-shell
-
-# Register custom stages
-./register_stages.sh
-
-# Install the caloron CLI
-pip install -e .
+# Register caloron's stages with the local Noether store
+./register_stages.sh         # the ~20 domain stages
+./register_phases.sh         # the architect/dev/review phase chain (writes
+                             # compositions/full_cycle_resolved.json)
 ```
 
-## Run a Sprint
-
-The recommended path is the `caloron` CLI:
+### Run the phase pipeline
 
 ```bash
-caloron init my-project --backend noether
-caloron sprint "Build a Python module with is_palindrome function. Include tests."
-caloron status
+noether run compositions/full_cycle_resolved.json --input '{
+  "goal": "Build a HealthCheck and a LoggingAdapter.",
+  "constraints": "Python 3.11+, no external deps."
+}'
 ```
 
-Or call the underlying orchestrator directly:
+Output is a typed `{tasks: [...]}` list — the same shape `caloron
+sprint --graph <path>` consumes when you want sprint planning to run
+through the composition rather than the built-in PO.
+
+### Run a per-tick sprint loop
 
 ```bash
-docker run -d --name gitea -p 3000:3000 gitea/gitea:1.22
+GITEA_TOKEN=... \
+GITEA_IP=$(docker network inspect bridge | python3 -c '
+import json, sys; d=json.load(sys.stdin)[0];
+print([c["IPv4Address"].split("/")[0] for c in d["Containers"].values()
+       if "gitea" in c.get("Name","")][0])')
 
-CALORON_BACKEND=noether python3 examples/orchestrator.py \
-  "Build a Python module with is_palindrome function. Include tests."
+noether run compositions/sprint_tick_stateful.json --input "{
+  \"sprint_id\": \"pilot\",
+  \"repo\": \"caloron/full-loop\",
+  \"stall_threshold_m\": 20,
+  \"token_env\": \"GITEA_TOKEN\",
+  \"shell_url\": \"http://localhost:7710\",
+  \"host\": \"http://${GITEA_IP}:3000/api/v1\"
+}"
 ```
 
-## Deployment
+`host` was added in v0.4.1/v0.4.2 so the github stages can target a
+self-hosted Gitea — leave it empty to hit `api.github.com` instead.
 
-For production, use Docker Compose or Kubernetes:
+State persists between ticks under `$CALORON_KV_DIR`
+(default `~/.caloron/kv/<sprint_id>.json`). Run noether-scheduler
+against `scheduler.json` to make this fire on a cron.
 
-```bash
-# Docker Compose (local/small team)
-cd deploy/docker
-docker compose up -d
+## Next steps
 
-# Kubernetes (enterprise)
-cd deploy/k8s
-helm install caloron .
-```
-
-See [Deployment Guide](../../deploy/README.md) for details.
-
-## Next Steps
-
-- [Architecture](architecture.md) — how stages, compositions, and the shell fit together
-- [Stage Catalog](../reference/stage-catalog.md) — all 20 custom stages
-- [vs Original Caloron](../comparison.md) — side-by-side comparison
+- [Architecture](architecture.md) — what runs where, current diagram
+- [Stage Catalog](../reference/stage-catalog.md) — full I/O signatures
+  for every stage
+- [Compositions](compositions.md) — the working composition graphs and
+  what each one does

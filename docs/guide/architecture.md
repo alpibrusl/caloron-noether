@@ -1,85 +1,132 @@
 # Architecture
 
-## System Layers
+## What runs where (today)
 
 ```mermaid
 graph TB
-    subgraph "Scheduling Layer"
-        SCH[noether-scheduler]
+    subgraph "Entry points"
+        CLI["caloron sprint &lt;goal&gt;"]
+        SCHED[noether-scheduler]
     end
-    
-    subgraph "Composition Layer (Noether Engine)"
-        TICK[sprint_tick.json]
-        KICK[kickoff.json]
-        RETRO[retro.json]
-        SPAWN[spawn_agent.json]
+
+    subgraph "Production path (Python)"
+        ORCH[orchestrator.py]
     end
-    
-    subgraph "Stage Layer (Python)"
-        GH[GitHub stages]
-        DAG[DAG stages]
-        SUP[Supervisor stages]
-        RET[Retro stages]
-        KF[Kickoff stages]
+
+    subgraph "Composition path (Noether)"
+        FULL[full_cycle.json]
+        TICK[sprint_tick_stateful.json]
+        CORE[sprint_tick_core.json]
+        TICK -.wraps.-> CORE
     end
-    
-    subgraph "Infrastructure Layer (Rust)"
-        SHELL[caloron-shell ~200 LOC]
+
+    subgraph "Stage Layer (~28 Python stages)"
+        PHASE[Phase POs<br/>architect/dev/review/design]
+        DOMAIN[Domain stages<br/>github/dag/supervisor/retro/kickoff]
+        SHIM[Sprint glue<br/>load_/save_/build_tick + reshape]
     end
-    
+
     subgraph "Storage"
-        KV[(Noether KV Store)]
-        GITEA[GitHub / Gitea]
+        KV[(Caloron KV<br/>~/.caloron/kv/)]
+        GITEA[(Gitea / GitHub)]
     end
-    
-    SCH --> TICK
-    SCH --> KICK
-    SCH --> RETRO
-    TICK --> GH
-    TICK --> DAG
-    TICK --> SUP
-    TICK --> SPAWN
-    GH --> GITEA
-    DAG --> KV
-    SUP --> KV
-    SHELL --> KV
+
+    subgraph "Process management"
+        SHELL[caloron-shell<br/>~200 LOC Rust]
+    end
+
+    CLI --> ORCH
+    SCHED --> TICK
+    ORCH --> DOMAIN
+    ORCH --> SHELL
+    FULL --> PHASE
+    TICK --> SHIM
+    CORE --> DOMAIN
+    SHIM --> KV
+    DOMAIN --> GITEA
+    SHELL --> GITEA
 ```
 
-## What Lives Where
+## Two parallel paths
 
-| Concern | Original Caloron | Caloron-Noether |
-|---------|-----------------|-----------------|
-| Orchestration loop | `orchestrator.rs` (404 lines) | `sprint_tick.json` + scheduler |
-| State management | `DaemonState` in memory | Noether KV store (SQLite) |
-| Event handling | `git/monitor.rs` (680 lines) | `poll_events.py` + `dag_evaluate.py` |
-| GitHub API | `git/client.rs` (237 lines) | 5 Python stages (~250 lines) |
-| DAG engine | `dag/engine.rs` (627 lines) | `evaluate.py` (~130 lines) |
-| Supervisor | 4 Rust files (934 lines) | 3 Python stages (~140 lines) |
-| Retro | 5 Rust files (2,083 lines) | 3 Python stages (~170 lines) |
-| Process management | `agent/spawner.rs` (336 lines) | `shell/src/spawner.rs` (~100 lines) |
-| Heartbeat | Unix socket server (345 lines) | HTTP endpoint (~50 lines) |
+Caloron has two ways to drive a sprint, by design — they target
+different operational models and have different maturity.
 
-## Data Flow: Sprint Tick
+### `caloron sprint` (Python orchestrator) — production today
+
+`orchestrator/orchestrator.py` is a monolithic Python loop that:
+
+- Calls a PO agent (configured CLI, e.g. `claude`)
+- Decomposes a goal into tasks
+- Resolves agents via AgentSpec when installed (or HR-agent
+  keyword-matching as a fallback)
+- Validates `required_skills` declared on each task — blocks if missing
+- Spawns each agent in a sandbox (`scripts/sandbox-agent.sh` on Linux,
+  `sandbox-passthrough.sh` elsewhere)
+- Manages the review cycle (up to 3 cycles before force-merge)
+- Persists retro learnings into `learnings.json` for the next sprint
+- Talks to Gitea via `docker exec gitea wget`
+
+Every field report so far has come from this path. It's
+battle-tested and the right thing to use today.
+
+### Noether composition path — the destination
+
+The composition path expresses the same logic as Noether stages
+chained via `Let` bindings and reshape stages. Two flavours:
+
+- **`full_cycle.json`** runs the planning pipeline:
+  `design_po → architect_po → dev_po → review_po → phases_to_sprint_tasks`,
+  emitting a typed `{tasks: [...]}` ready for the orchestrator (or for
+  `caloron sprint --graph` to consume).
+- **`sprint_tick_stateful.json`** is the per-tick loop that
+  `noether-scheduler` is meant to fire on a cron. Pure composition;
+  state persists in `~/.caloron/kv/<sprint_id>.json`.
+
+These type-check end-to-end and individual stages run correctly. Live
+end-to-end pilot against a real Gitea is the remaining piece.
+
+## What lives where
+
+| Concern | Implementation |
+|---------|----------------|
+| Production sprint loop | `orchestrator/orchestrator.py` (Python) |
+| Composition-driven sprint loop | `compositions/sprint_tick_stateful.json` (Noether graph) |
+| Phase-based planning | `compositions/full_cycle.json` + `stages/phases/*` |
+| State persistence | Caloron KV directory (one JSON per sprint) |
+| Per-task framework selection | `orchestrator.FRAMEWORKS` registry (claude-code, gemini-cli, codex-cli, opencode, aider, cursor-cli, stub) |
+| Process spawning | `caloron-shell` (Rust HTTP server, 3 endpoints) |
+| Organisation-wide conventions | `caloron/organisation.py` + `~/.caloron/organisation.yml` |
+| Required-skill enforcement | `_enforce_required_skills` in `orchestrator.py` |
+
+## Sprint tick — sprint_tick_core data flow
+
+Each tick of `sprint_tick_core.json`:
 
 ```
-1. Scheduler triggers sprint_tick.json
-2. Parallel: load DagState + last_poll + agents from KV
-3. github_poll_events → fetch events since last_poll
-4. Save new last_poll to KV
-5. dag_evaluate → advance state machine, produce actions
-6. Save updated DagState to KV
-7. Parallel:
-   a. check_agent_health → decide_intervention → supervisor actions
-   b. dag_is_complete → check if sprint is done
-8. execute_actions → dispatch: spawn agents, merge PRs, post comments
+input: { repo, since, token_env, host, state, agents,
+         interventions, sprint_id, shell_url, stall_threshold_m }
+
+  ↓ Let { poll: github_poll_events }
+  ↓ Let { eval: Sequential[project_poll_to_eval, dag_evaluate] }
+  ↓ Let { health: check_agent_health }
+  ↓ Let { supervisor: Sequential[project_health_to_intervention,
+                                  decide_intervention] }
+  ↓ Let { execute_result: Sequential[project_all_to_execute,
+                                      execute_actions] }
+  ↓ build_tick_output
+
+output: { actions_taken, errors, state, polled_at, interventions }
 ```
 
-## The Shell
+Each `Let` binding accumulates outputs into the body's scope under the
+binding name; reshape stages between Sequential steps realign data so
+each domain stage sees its own narrow input shape via structural
+subtyping. See [Compositions](compositions.md) for why this design over
+the alternatives.
 
-The only Rust code. Three HTTP endpoints:
+## The shell
 
-- `POST /heartbeat` — agents report liveness, written to KV
-- `POST /spawn` — create git worktree + start harness process
-- `GET /status` — list agent PIDs and liveness
-
-The shell does **no business logic** — it only manages OS processes and proxies heartbeats to the KV store.
+Three HTTP endpoints (`POST /heartbeat`, `POST /spawn`, `GET /status`)
+in ~200 lines of Rust. No business logic — only OS-process management
+and proxying heartbeats. See [Shell API](../reference/shell-api.md).

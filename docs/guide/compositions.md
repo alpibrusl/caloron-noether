@@ -1,8 +1,10 @@
 # Composition Graphs
 
-Composition graphs are JSON files that wire stages together. Noether type-checks the entire graph before execution.
+JSON files that wire stages together. Noether type-checks the entire
+graph before execution; you can dry-run any composition via
+`noether run --dry-run <file>`.
 
-## Graph Format
+## Graph format
 
 ```json
 {
@@ -12,83 +14,79 @@ Composition graphs are JSON files that wire stages together. Noether type-checks
 }
 ```
 
-### Node Types
+### Operators we use
 
-| Op | Description |
-|----|-------------|
+| Op | Purpose |
+|----|---------|
 | `Stage` | Call a single stage by hash ID |
-| `Sequential` | Pipe output of each stage to the next |
-| `Parallel` | Run branches concurrently, merge outputs |
-| `Branch` | Conditional: if/then/else |
+| `Sequential` | Pipe each stage's output into the next stage's input |
+| `Let` | Run named bindings; the body sees the outer scope plus each binding's output as a nested field under the binding name |
+| `Parallel` | Run branches concurrently; outputs nested under branch names |
 
-## `sprint_tick.json`
+We don't use `Branch`, `Fanout`, `Merge`, `Retry`, or `Const` in
+caloron's compositions today — they're available if a future
+composition needs them.
 
-The main loop. Run every 60 seconds by the scheduler.
+## Compositions in this repo
 
-```
-Input:  { sprint_id, repo, stall_threshold_m }
-Output: { actions_taken, dag_complete }
+| File | Status | Purpose |
+|------|--------|---------|
+| `full_cycle.json` | Live | The phase pipeline: design → architect → dev → review → flatten. End-to-end planning. |
+| `sprint_plan.json` | Live | Architect + dev only (no review). Lighter alternative for one-shot planning. |
+| `sprint_tick_core.json` | Live | Pure per-tick loop, stateless |
+| `sprint_tick_stateful.json` | Live | KV-wrapped sprint_tick_core: load state → tick → save |
+| `kickoff.json` | Aspirational | One-shot DAG generation + Gitea issue creation |
+| `retro.json` | Aspirational | Feedback collection + KPI computation + report |
+| `spawn_agent.json` | Aspirational | Tiny wrapper around the shell's `/spawn` endpoint |
+| `sprint_tick.json` | **Deprecated** | Original v0.1 stub; references stage IDs that haven't been valid since Noether v0.3 |
 
-Flow:
-1. Parallel: load DagState + last_poll + agents from KV
-2. Poll GitHub events
-3. Save last_poll
-4. Evaluate DAG → produce actions
-5. Save DagState
-6. Parallel: health checks + completion check
-7. Execute actions (spawn, merge, comment, escalate)
-```
+The aspirational ones are reference-quality JSON for what their
+respective compositions could look like once register_stages.sh and the
+relevant stages are wired up against your local Noether store.
 
-## `kickoff.json`
+## Resolved-ID files (gitignored)
 
-One-shot. Generates a DAG and creates GitHub issues.
+`register_stages.sh` and `register_phases.sh` write
+`compositions/full_cycle_resolved.json` and `stage_ids.json` (gitignored)
+with the SHA-256 hashes Noether assigned at registration time. Other
+compositions that want to reference these stages can either be
+generated similarly or pull from `stage_ids.json`.
 
-```
-Input:  { brief, repo, num_agents }
-Output: { sprint_id, dag, issues_created }
+## Threading data through a Let chain — the key pattern
 
-Flow:
-1. Fetch repo context
-2. Generate DAG from brief
-3. Validate DAG
-4. Save to KV
-5. Create issues
-```
+Each `Let` binding's output appears in the body's scope as a nested
+field, not flattened. So if `poll: github_poll_events` outputs
+`{events, polled_at}`, the body sees `{...outer, poll: {events,
+polled_at}}`. The next stage that wants `events` at the top level
+needs a tiny **reshape stage** to project it out:
 
-## `retro.json`
-
-One-shot. Collects feedback and generates a report.
-
-```
-Input:  { sprint_id, repo }
-Output: { report_path }
-
-Flow:
-1. Load final DagState from KV
-2. Parallel: collect feedback + compute KPIs
-3. Write report
-```
-
-## `spawn_agent.json`
-
-Called by the sprint tick when a task is ready.
-
-```
-Input:  { sprint_id, task_id, agent_id, repo, worktree_base }
-Output: { pid, started_at }
-
-Flow:
-1. POST to caloron-shell /spawn
-2. Save PID to KV
+```python
+# stages/sprint/project_poll_to_eval.py
+def execute(input):
+    return {
+        "state": input["state"],
+        "events": input["poll"]["events"],
+        "stall_threshold_m": input["stall_threshold_m"],
+    }
 ```
 
-## Type Checking
+This is what `stages/sprint/project_*.py` and the `build_tick_output`
+stage do — small typed reshape stages between Let bindings and
+Sequential steps. They keep each domain stage's input contract narrow
+(no per-composition shape pollution) while making data flow explicit
+in the graph itself.
 
-Validate a graph without executing:
+We considered three alternatives — pass-through fields on every domain
+stage, a generic untyped projection operator, and a monolithic
+sprint_tick_core single stage — and rejected each for reasons recorded
+in the v0.4.0 commit message.
+
+## Type checking
 
 ```bash
-noether run --dry-run compositions/sprint_tick.json \
-  --input '{"sprint_id": "x", "repo": "o/r", "stall_threshold_m": 20}'
+noether run --dry-run compositions/full_cycle_resolved.json
 ```
 
-This catches type mismatches between stages before any side effects occur.
+The output's `type_check.input` field tells you the exact shape
+the composition requires from its caller. Use this to design your
+caller's input record before wiring anything up.
