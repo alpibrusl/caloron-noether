@@ -16,9 +16,10 @@ def execute(input: dict) -> dict:
     repo = input["repo"]
     pr_number = int(input["pr_number"])
     token = os.environ.get(input.get("token_env", "GITHUB_TOKEN"), "")
+    host = (input.get("host") or "https://api.github.com").rstrip("/")
 
     req = Request(
-        f"https://api.github.com/repos/{repo}/pulls/{pr_number}/merge",
+        f"{host}/repos/{repo}/pulls/{pr_number}/merge",
         data=b"{}",
         headers={
             "Authorization": f"token {token}",

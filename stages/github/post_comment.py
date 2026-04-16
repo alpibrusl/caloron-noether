@@ -16,11 +16,12 @@ def execute(input: dict) -> dict:
     repo = data["repo"]
     issue_number = int(data["issue_number"])
     token = os.environ.get(data.get("token_env", "GITHUB_TOKEN"), "")
+    host = (data.get("host") or "https://api.github.com").rstrip("/")
 
     payload = json.dumps({"body": data["body"]}).encode()
 
     req = Request(
-        f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments",
+        f"{host}/repos/{repo}/issues/{issue_number}/comments",
         data=payload,
         headers={
             "Authorization": f"token {token}",

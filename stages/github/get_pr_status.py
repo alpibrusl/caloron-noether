@@ -16,6 +16,7 @@ def execute(input: dict) -> dict:
     repo = input["repo"]
     pr_number = int(input["pr_number"])
     token = os.environ.get(input.get("token_env", "GITHUB_TOKEN"), "")
+    host = (input.get("host") or "https://api.github.com").rstrip("/")
 
     headers = {
         "Authorization": f"token {token}",
@@ -24,7 +25,7 @@ def execute(input: dict) -> dict:
 
     # Get PR
     req = Request(
-        f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+        f"{host}/repos/{repo}/pulls/{pr_number}",
         headers=headers,
     )
     try:
@@ -47,7 +48,7 @@ def execute(input: dict) -> dict:
     reviewers: list[str] = []
     try:
         req = Request(
-            f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+            f"{host}/repos/{repo}/pulls/{pr_number}/reviews",
             headers=headers,
         )
         with urlopen(req) as resp:  # noqa: S310

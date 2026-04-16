@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.4.1 (2026-04-16)
+
+Hot follow-up to v0.4.0 from the live-validation pilot: surfaced a real
+architectural gap and shipped the unblocking fix. The pilot itself
+hit a sandbox network limitation that prevented end-to-end completion;
+documented below.
+
+### Fixed
+
+- **github_* stages no longer hardcode `api.github.com`.** Pilot
+  finding: caloron's actual production usage is Gitea-based (via
+  `orchestrator.py:gitea()` using `docker exec` against a local
+  container), but the composition stages all hardcoded `api.github.com`
+  — meaning sprint_tick_stateful.json type-checked but couldn't drive
+  caloron's real Gitea loop. This was why no field user was running
+  the new composition path despite v0.4.0 shipping it.
+
+  Each of the seven affected stages now accepts a `host` input field
+  with a default of `https://api.github.com`. Set to your Gitea API
+  root (e.g. `http://172.17.0.2:3000/api/v1` for a local container,
+  or `https://gitea.example.com/api/v1` for hosted) to target a
+  self-hosted forge. Both backends expose the same `/repos/<owner>/
+  <repo>/...` endpoints, so one stage covers both.
+
+  Stages updated:
+  - github_poll_events, github_create_issue, github_post_comment,
+    github_add_label, github_merge_pr, get_pr_status,
+    fetch_repo_context.
+
+  Catalogue (stage_catalog.py) updated to declare the `host` field
+  in each input schema; re-registers cleanly against Noether v0.3.1.
+
+### Added
+
+- 16 unit tests under `tests/test_github_host_param.py` covering:
+  - default-host fallback (api.github.com still works)
+  - explicit host substitution via captured-URL assertions
+  - trailing-slash robustness
+  - per-stage smoke (one test per affected stage)
+  - catalogue-vs-source consistency check (stage source accepts
+    `host` ↔ catalogue declares it; catches drift)
+
+### Known limitation: pilot incomplete in this session
+
+The original pilot goal — "run sprint_tick_stateful end-to-end against
+local Gitea via noether-scheduler" — couldn't complete because the
+sandboxed shell environment can't reach the docker bridge IP
+(`172.17.0.2:3000`). Both `curl` and the noether-stage-runner timed
+out trying to reach Gitea from outside the container.
+
+To complete the live pilot in a permissive environment:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+export GITEA_TOKEN=...      # your Gitea API token
+export CALORON_KV_DIR=/tmp/caloron-pilot-kv
+
+# Edit compositions/sprint_tick_stateful.json's input shape to include host,
+# OR pass via the --input JSON. The host needs to be reachable from wherever
+# `noether run` actually executes — for a local Gitea container, the bridge
+# IP is reliable: docker network inspect bridge | grep IPv4
+noether run compositions/sprint_tick_stateful.json --input \
+  '{"sprint_id": "pilot", "repo": "caloron/full-loop",
+    "stall_threshold_m": 20, "token_env": "GITEA_TOKEN",
+    "shell_url": "http://localhost:7710",
+    "host": "http://172.17.0.2:3000/api/v1"}'
+```
+
+Note: sprint_tick_stateful's current input schema doesn't declare
+`host` — it'd need to be threaded through `load_tick_state` and on to
+the github_* stages. Tracked as the next composition refinement; not
+shipped in 0.4.1 because the architectural enabler (the host param)
+is what was actually missing.
+
+### Scope notes
+
+- The composition wiring for `host` (threading it through
+  load_tick_state into the inlined sprint_tick_core) is straightforward
+  but not in this release. Adds two lines to `load_tick_state.py`'s
+  output schema and one input field to the catalogue. Will batch with
+  the conventions-as-tools work in a future release.
+- No field reports yet on whether anyone's exercising the github
+  stages directly (vs. composing them via sprint_tick_*). If you are,
+  the new `host` parameter is opt-in — leaving it unset preserves
+  pre-0.4.1 behaviour exactly.
+
 ## 0.4.0 (2026-04-16)
 
 Major: the sprint-tick loop is Noether-native now. Plus testability

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Fetch GitHub events (issues, comments, PRs, reviews) since a timestamp.
+"""Fetch GitHub/Gitea events (issues, comments, PRs, reviews) since a timestamp.
 
-Input:  { repo: Text, since: Text, token_env: Text }
+Input:  { repo: Text, since: Text, token_env: Text, host: Text }
 Output: { events: List<Record>, polled_at: Text }
 
 Effects: [Network, Fallible]
+
+``host`` defaults to the public GitHub API. Set to a Gitea instance's
+API root (e.g. ``http://localhost:3000/api/v1``) to target a self-hosted
+forge. Both GitHub and Gitea expose the same ``repos/<owner>/<repo>/…``
+paths, so one stage covers both.
 """
 import json
 import os
@@ -18,13 +23,14 @@ def execute(input: dict) -> dict:
     repo = data["repo"]
     since = data.get("since", "1970-01-01T00:00:00Z")
     token_env = data.get("token_env", "GITHUB_TOKEN")
+    host = data.get("host", "") or "https://api.github.com"
     token = os.environ.get(token_env, "")
 
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.v3+json",
     }
-    base = f"https://api.github.com/repos/{repo}"
+    base = f"{host.rstrip('/')}/repos/{repo}"
 
     events = []
 

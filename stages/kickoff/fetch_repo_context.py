@@ -15,6 +15,7 @@ def execute(input: dict) -> dict:
     data = input
     repo = data["repo"]
     token = os.environ.get(data.get("token_env", "GITHUB_TOKEN"), "")
+    host = (data.get("host") or "https://api.github.com").rstrip("/")
 
     headers = {
         "Authorization": f"token {token}",
@@ -22,7 +23,7 @@ def execute(input: dict) -> dict:
     }
 
     def gh_get(path):
-        req = Request(f"https://api.github.com/repos/{repo}{path}", headers=headers)
+        req = Request(f"{host}/repos/{repo}{path}", headers=headers)
         with urlopen(req) as resp:
             return json.loads(resp.read())
 

@@ -104,6 +104,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["repo", "Text"],
                 ["since", "Text"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -124,6 +125,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["body", "Text"],
                 ["labels", {"List": "Text"}],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -143,6 +145,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["issue_number", "Number"],
                 ["body", "Text"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -162,6 +165,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["issue_number", "Number"],
                 ["label", "Text"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {"Record": [["ok", "Bool"]]},
@@ -175,6 +179,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["repo", "Text"],
                 ["pr_number", "Number"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -193,6 +198,7 @@ CATALOG: dict[str, dict[str, Any]] = {
                 ["repo", "Text"],
                 ["pr_number", "Number"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {
@@ -459,6 +465,7 @@ CATALOG: dict[str, dict[str, Any]] = {
             "Record": [
                 ["repo", "Text"],
                 ["token_env", "Text"],
+                ["host", "Text"],
             ]
         },
         "output": {

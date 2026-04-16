@@ -15,6 +15,7 @@ def execute(input: dict) -> dict:
     data = input
     repo = data["repo"]
     token = os.environ.get(data.get("token_env", "GITHUB_TOKEN"), "")
+    host = (data.get("host") or "https://api.github.com").rstrip("/")
 
     payload = json.dumps({
         "title": data["title"],
@@ -23,7 +24,7 @@ def execute(input: dict) -> dict:
     }).encode()
 
     req = Request(
-        f"https://api.github.com/repos/{repo}/issues",
+        f"{host}/repos/{repo}/issues",
         data=payload,
         headers={
             "Authorization": f"token {token}",
