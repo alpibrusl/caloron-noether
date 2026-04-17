@@ -4,7 +4,7 @@
     {
       "name": "sprint-tick",
       "cron": "* * * * *",
-      "graph": "./compositions/sprint_tick.json",
+      "graph": "./compositions/sprint_tick_stateful.json",
       "input": {
         "sprint_id": "sprint-1",
         "repo": "owner/repo",

@@ -219,7 +219,10 @@ async fn handle_status(State(state): State<Arc<Mutex<AppState>>>) -> Json<Status
         .list_agents()
         .into_iter()
         .map(|(agent_id, sprint_id, pid)| {
-            let alive = spawner::is_process_alive(pid);
+            // is_agent_alive compares /proc/<pid>/stat's start time against
+            // the value captured at spawn — an unrelated process that ended
+            // up with the same PID after reuse is reported dead.
+            let alive = state.spawner.is_agent_alive(&agent_id);
             let last_heartbeat = state
                 .heartbeats
                 .last_heartbeat(&agent_id)
