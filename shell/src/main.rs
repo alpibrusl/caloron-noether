@@ -1,3 +1,4 @@
+mod auth;
 mod heartbeat_server;
 mod spawner;
 mod validation;
@@ -6,12 +7,14 @@ use axum::{
     Json, Router,
     extract::State,
     http::StatusCode,
+    middleware,
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use auth::AuthConfig;
 use heartbeat_server::HeartbeatStore;
 use spawner::AgentSpawner;
 use validation::is_valid_id;
@@ -36,17 +39,28 @@ async fn main() -> anyhow::Result<()> {
         .parse()
         .unwrap_or(7710);
 
+    let auth_cfg = AuthConfig::from_env()?;
+
     let state = Arc::new(Mutex::new(AppState {
         heartbeats: HeartbeatStore::new(),
         spawner: AgentSpawner::new(),
     }));
 
-    let app = Router::new()
+    // Protected routes: every mutating endpoint, plus /status (leaks agent inventory).
+    let protected = Router::new()
         .route("/heartbeat", post(handle_heartbeat))
         .route("/spawn", post(handle_spawn))
         .route("/status", get(handle_status))
-        .route("/health", get(handle_health))
+        .route_layer(middleware::from_fn_with_state(
+            auth_cfg.clone(),
+            auth::require_token,
+        ))
         .with_state(state);
+
+    // Public: /health only (used by compose/k8s readiness probes).
+    let app = Router::new()
+        .route("/health", get(handle_health))
+        .merge(protected);
 
     let addr = format!("127.0.0.1:{port}");
     tracing::info!(addr, "caloron-shell listening");
