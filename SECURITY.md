@@ -40,3 +40,23 @@ Every id field accepted at `/spawn` and `/heartbeat` (`agent_id`, `sprint_id`,
 `task_id`) is validated against `^[a-z0-9_-]{1,64}$` at the request boundary.
 Path traversal, absolute paths, and shell metacharacters are rejected with
 HTTP 400 before any filesystem or subprocess call.
+
+## Claude `--dangerously-skip-permissions`
+
+Caloron invokes `claude` to drive agent sprints, phase PO summaries, and
+template bootstrap. Passing `--dangerously-skip-permissions` disables
+Claude Code's tool-permission prompts, letting the spawned agent read,
+write, and execute anything the process can.
+
+Because DAG content drives prompt content, we treat this as equivalent
+to running arbitrary commands from the DAG. The flag is **off by
+default** and only attached when the operator explicitly opts in:
+
+```sh
+export CALORON_ALLOW_DANGEROUS_CLAUDE=1
+```
+
+The gate lives in `orchestrator/claude_flags.py` (`dangerous_flags()`),
+and every call site that previously hard-coded the flag now reads from
+there. Plain boolean-ish values (`1`, `true`, `yes`, `on`) enable it;
+anything else leaves it off.
