@@ -1,0 +1,54 @@
+name: Fresh-machine quickstart
+
+# Walks the README's Setup section on a clean ubuntu-latest runner to catch
+# drift between docs and code: missing deps, broken install instructions,
+# stale stage references. Runs weekly and on PRs that touch README, setup
+# scripts, or the stage-registration machinery.
+#
+# The full README expects `noether` and `noether-scheduler` binaries from the
+# sibling repo; those are installed via `cargo install noether-cli` which
+# takes a few minutes. We exercise the subset that's testable here —
+# dependency install, shell build, stage-catalog self-check, Python stage
+# smoke tests — so any drift in the *caloron* side is caught quickly.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'register_stages.sh'
+      - 'register_phases.sh'
+      - 'stage_catalog.py'
+      - 'pyproject.toml'
+      - '.github/workflows/quickstart.yml'
+  workflow_dispatch:
+
+jobs:
+  quickstart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Python package + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build the shell
+        run: cargo build -p caloron-shell
+
+      - name: Python stage + catalogue tests
+        run: |
+          # Skip CLI smoke tests — they require the `caloron` binary in PATH,
+          # covered by a separate install workflow.
+          python -m pytest tests/ -q --ignore=tests/test_cli_smoke.py
