@@ -91,7 +91,9 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FRAMEWORKS = {
     "claude-code": {
         "cmd": "claude",
-        "args": ["--dangerously-skip-permissions"],
+        # --dangerously-skip-permissions is injected by build_agent_command
+        # only when CALORON_ALLOW_DANGEROUS_CLAUDE is set; see claude_flags.py.
+        "args": [],
         "prompt_flag": "-p",
         "api_key_env": "ANTHROPIC_API_KEY",
         "api_key_flag": "--api-key",
@@ -163,9 +165,16 @@ FRAMEWORKS = {
 
 def build_agent_command(framework: str, prompt: str) -> list[str]:
     """Build the command list for a given framework and prompt."""
+    from orchestrator.claude_flags import dangerous_flags
+
     fw = FRAMEWORKS.get(framework, FRAMEWORKS["claude-code"])
 
     cmd = [fw["cmd"]] + fw["args"]
+
+    # Only claude-code has the dangerous-permissions flag; other runtimes
+    # have their own autonomous-run switches already in fw["args"].
+    if framework == "claude-code":
+        cmd.extend(dangerous_flags())
 
     # Add API key if available (overrides Pro subscription login)
     api_key = os.environ.get(fw["api_key_env"], "")

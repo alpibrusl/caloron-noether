@@ -651,13 +651,15 @@ test skeleton with one smoke test, CI pipeline, and pre-commit hooks.
 Output ONLY the YAML, nothing else."""
 
     try:
+        from orchestrator.claude_flags import dangerous_flags
+        extra = dangerous_flags()
         if sandbox:
             result = subprocess.run(
-                [sandbox, project_dir, "claude", "-p", prompt, "--dangerously-skip-permissions"],
+                [sandbox, project_dir, "claude", "-p", prompt, *extra],
                 capture_output=True, text=True, timeout=120)
         else:
             result = subprocess.run(
-                ["claude", "-p", prompt, "--dangerously-skip-permissions"],
+                ["claude", "-p", prompt, *extra],
                 capture_output=True, text=True, timeout=120)
 
         output = result.stdout or ""

@@ -181,9 +181,10 @@ Respond ONLY with a JSON object:
 {{"skills": ["skill1", "skill2"], "model": "balanced|strong|fast", "notes": "why"}}"""
 
             try:
+                from orchestrator.claude_flags import dangerous_flags
                 hr_result = subprocess.run(
                     [SANDBOX, f"{WORK}/project", "claude", "-p", hr_prompt,
-                     "--dangerously-skip-permissions"],
+                     *dangerous_flags()],
                     capture_output=True, text=True, timeout=60)
 
                 match = re.search(r"\{.*\}", hr_result.stdout or "", re.DOTALL)

@@ -80,7 +80,20 @@ def _claude_cli(prompt: str, timeout: int) -> str | None:
         return None
     # `claude -p "<prompt>"` runs non-interactively using the local session
     # (subscription OR ANTHROPIC_API_KEY, whichever claude-code is configured for).
-    return _subproc(["claude", "--dangerously-skip-permissions", "-p", prompt], "", timeout)
+    # --dangerously-skip-permissions disables Claude Code's tool-permission
+    # prompts; we only pass it when the operator explicitly opts in via
+    # CALORON_ALLOW_DANGEROUS_CLAUDE (same gate used by orchestrator.*).
+    dangerous = os.environ.get("CALORON_ALLOW_DANGEROUS_CLAUDE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    argv = ["claude"]
+    if dangerous:
+        argv.append("--dangerously-skip-permissions")
+    argv.extend(["-p", prompt])
+    return _subproc(argv, "", timeout)
 
 
 def _gemini_cli(prompt: str, timeout: int) -> str | None:
