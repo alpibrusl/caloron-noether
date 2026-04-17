@@ -1,9 +1,11 @@
 mod heartbeat_server;
 mod spawner;
+mod validation;
 
 use axum::{
     Json, Router,
     extract::State,
+    http::StatusCode,
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -12,6 +14,7 @@ use tokio::sync::Mutex;
 
 use heartbeat_server::HeartbeatStore;
 use spawner::AgentSpawner;
+use validation::is_valid_id;
 
 /// Shared application state.
 struct AppState {
@@ -107,7 +110,14 @@ struct AgentInfo {
 async fn handle_heartbeat(
     State(state): State<Arc<Mutex<AppState>>>,
     Json(req): Json<HeartbeatRequest>,
-) -> Json<OkResponse> {
+) -> Result<Json<OkResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if !is_valid_id(&req.agent_id) {
+        return Err(invalid_id_response("agent_id"));
+    }
+    if !is_valid_id(&req.sprint_id) {
+        return Err(invalid_id_response("sprint_id"));
+    }
+
     let mut state = state.lock().await;
     state
         .heartbeats
@@ -119,16 +129,39 @@ async fn handle_heartbeat(
         "Heartbeat received"
     );
 
-    Json(OkResponse {
+    Ok(Json(OkResponse {
         ok: true,
         pid: None,
-    })
+    }))
+}
+
+fn invalid_id_response(field: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({
+            "ok": false,
+            "error": format!(
+                "invalid {field}: must match ^[a-z0-9_-]{{1,64}}$"
+            ),
+        })),
+    )
 }
 
 async fn handle_spawn(
     State(state): State<Arc<Mutex<AppState>>>,
     Json(req): Json<SpawnRequest>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    for (field, value) in [
+        ("agent_id", &req.agent_id),
+        ("sprint_id", &req.sprint_id),
+        ("task_id", &req.task_id),
+    ] {
+        if !is_valid_id(value) {
+            tracing::warn!(field, value, "Rejected spawn: invalid identifier");
+            return Err(invalid_id_response(field));
+        }
+    }
+
     let mut state = state.lock().await;
 
     match state
@@ -149,7 +182,7 @@ async fn handle_spawn(
                 pid,
                 "Agent spawned"
             );
-            Json(serde_json::json!({ "ok": true, "pid": pid }))
+            Ok(Json(serde_json::json!({ "ok": true, "pid": pid })))
         }
         Err(e) => {
             tracing::error!(
@@ -157,7 +190,9 @@ async fn handle_spawn(
                 error = %e,
                 "Spawn failed"
             );
-            Json(serde_json::json!({ "ok": false, "error": e.to_string() }))
+            Ok(Json(
+                serde_json::json!({ "ok": false, "error": e.to_string() }),
+            ))
         }
     }
 }
