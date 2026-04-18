@@ -1,5 +1,9 @@
 # Caloron-Noether
 
+> **Reference application for [Noether](https://github.com/alpibrusl/noether).** Caloron-Noether is a working, non-trivial example of what Noether stages + the scheduler are good for. It runs sprint-style agent orchestration, but its real value is as documentation-by-example — "here is how you compose Noether stages into a real-world system."
+
+If you want agent orchestration for your team, this repo works today, but the long-term focus is the primitives in Noether rather than features in Caloron. New ideas usually land as new *stages* (reusable across projects) rather than new orchestrator logic.
+
 Caloron reimplemented as Noether composition graphs. Same orchestration capabilities, ~6x less code.
 
 ## Architecture
@@ -163,3 +167,11 @@ scripts/              Sandbox (bubblewrap on Linux, passthrough on macOS/other)
 deploy/               Docker Compose + Kubernetes Helm chart
 demo/                 Asciinema recording script
 ```
+
+---
+
+## Project status
+
+**Reference app, not a supported product.** One active maintainer, best-effort response times. The stage catalogue and composition graphs are intentionally readable as a tutorial — if you're using caloron-noether to learn Noether, that's the primary use case. If you need agent orchestration for a team, it works today but don't deploy without reading [SECURITY.md](./SECURITY.md) and understanding the `CALORON_ALLOW_DANGEROUS_CLAUDE` gate (off by default — autonomous tool access requires explicit opt-in).
+
+Not suitable for deployments requiring vendor SLAs.
