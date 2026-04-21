@@ -566,6 +566,87 @@ def test_call_llm_falls_back_on_llm_here_subprocess_timeout(monkeypatch):
     assert _llm.call_llm("hi") == "via fallback"
 
 
+# Review-comment response: each of these pins behaviour the code
+# already defends against but had no regression test for. Addresses
+# PR #22 review items 1, 3-text-guard, and 5.
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", "42", '"string"', '"null"'])
+def test_call_llm_falls_back_on_non_object_json(monkeypatch, payload):
+    """Valid JSON that isn't a dict (e.g. future schema change or wire
+    corruption) must fall through to the local providers without raising
+    ``AttributeError`` on ``payload.get(...)``. Mirrors the same fix
+    applied to agentspec#29's resolver."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=0, stdout=payload),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    # Key: no exception escapes; call_llm returns the fallback text.
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"ok": true, "text": null}',
+        '{"ok": true, "text": ""}',
+        '{"ok": true, "text": 42}',
+        '{"ok": true, "text": ["array", "of", "strings"]}',
+        '{"ok": true}',  # text key missing entirely
+    ],
+)
+def test_call_llm_falls_back_on_malformed_text_field(monkeypatch, payload):
+    """``ok: true`` but ``text`` missing / wrong-type / empty must fall
+    through, not return ``None`` silently from call_llm and skip the
+    fallback. Locks in the ``isinstance(text, str) and text`` guard."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=0, stdout=payload),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+def test_call_llm_does_not_forward_unknown_provider_override_to_llm_here(
+    monkeypatch,
+):
+    """``CALORON_LLM_PROVIDER=<unknown>`` must **not** spawn llm-here
+    with a bogus ``--provider <unknown>`` argv. The in-tree fallback
+    also has no such provider, so both paths skip it — but the
+    load-bearing invariant is that llm-here never sees the unknown id.
+    This guards the early-return in ``_call_via_llm_here``."""
+    from stages.phases import _llm
+
+    spawn_calls: list[list[str]] = []
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "not-a-real-provider-id")
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda argv, **k: spawn_calls.append(argv)
+        or _MockSubprocessResult(returncode=0, stdout="unused"),
+    )
+
+    # Both the llm-here path and the in-tree fallback skip unknown
+    # providers; result is None. The important assertion is the
+    # non-invocation of llm-here.
+    assert _llm.call_llm("hi") is None
+    assert spawn_calls == [], (
+        f"llm-here should not have been invoked for an unknown provider "
+        f"id, got argv={spawn_calls}"
+    )
+
+
 # ── Original review_po test (unchanged) ──────────────────────────────────────
 
 

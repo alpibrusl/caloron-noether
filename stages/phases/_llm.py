@@ -20,11 +20,14 @@ regular module that tests import directly.
 """
 
 import json as _json
+import logging
 import os
 import shutil
 import subprocess
 import urllib.error
 import urllib.request
+
+logger = logging.getLogger(__name__)
 
 _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
 _OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
@@ -256,16 +259,27 @@ def _call_via_llm_here(prompt: str, timeout: int) -> str | None:
     - ``CALORON_LLM_SKIP_CLI`` — honoured natively by llm-here as one
       of four aliases, so it doesn't need explicit forwarding.
     - ``CALORON_ALLOW_DANGEROUS_CLAUDE`` → ``--dangerous-claude``.
-    - ``timeout`` — capped at 25 s inside llm-here itself; we pass the
-      caller-supplied value (llm-here will shorten if needed).
+    - ``timeout`` — caller-supplied, clamped to 300 s before forwarding
+      so a runaway ``timeout`` kwarg doesn't stretch the subprocess past
+      five minutes. llm-here applies its own per-provider timeouts
+      below this ceiling.
+
+    Every failure path logs a ``logger.debug`` breadcrumb so deployments
+    stuck on the fallback can see *why* via ``logging.basicConfig(
+    level=logging.DEBUG)``.
     """
     if not shutil.which("llm-here"):
+        logger.debug("llm-here not on PATH; using in-tree fallback")
         return None
 
     override = os.environ.get("CALORON_LLM_PROVIDER", "").strip()
     if override and override not in _LLM_HERE_KNOWN_IDS:
         # Providers caloron's local code knows about but llm-here doesn't
         # (none today; future-proofing). Skip llm-here, fall back.
+        logger.debug(
+            "CALORON_LLM_PROVIDER=%r not in llm-here registry; falling back",
+            override,
+        )
         return None
 
     dangerous = os.environ.get("CALORON_ALLOW_DANGEROUS_CLAUDE", "").strip().lower() in (
@@ -292,22 +306,63 @@ def _call_via_llm_here(prompt: str, timeout: int) -> str | None:
             timeout=timeout + 5,
             check=False,
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        # OSError covers FileNotFoundError (PATH race: llm-here was present
+        # at `shutil.which` time and gone a millisecond later) and
+        # PermissionError (binary on PATH but not executable). Fall back.
+        logger.debug("llm-here spawn failed: %s", exc)
         return None
 
-    # llm-here exits 0 on success, 1 on "tried but failed", 2 on internal
-    # failure. Both 1 and 2 mean "fall back to local providers"; 0 means
-    # parse the JSON and return the text.
-    if result.returncode != 0:
+    # llm-here exit codes: 0 = success, 1 = "attempted but failed", 2 =
+    # internal error. For 1 we parse the payload below and log the
+    # provider's own error; for 2 the stderr is the only diagnostic we
+    # have. Both paths fall back to local providers.
+    if result.returncode == 2:
+        logger.debug(
+            "llm-here exit 2 (internal error); stderr=%s; falling back",
+            result.stderr.strip(),
+        )
         return None
+    if result.returncode not in (0, 1):
+        logger.debug(
+            "llm-here unexpected exit %d; stderr=%s; falling back",
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+
     try:
         payload = _json.loads(result.stdout)
-    except _json.JSONDecodeError:
+    except _json.JSONDecodeError as exc:
+        logger.debug("llm-here emitted invalid JSON: %s; falling back", exc)
         return None
+
+    # Schema-shape defence: a future breaking change or wire corruption
+    # could return valid JSON that isn't the documented ``{ok, text,
+    # ...}`` object. Refuse rather than raise `AttributeError` on
+    # ``payload.get``, which would propagate out of `_call_via_llm_here`
+    # and break `call_llm` entirely before the fallback could run.
+    if not isinstance(payload, dict):
+        logger.debug(
+            "llm-here returned non-object JSON (%s); falling back",
+            type(payload).__name__,
+        )
+        return None
+
     if not payload.get("ok"):
+        logger.debug(
+            "llm-here reported ok=false; error=%r; falling back",
+            payload.get("error"),
+        )
         return None
+
     text = payload.get("text")
-    return text if isinstance(text, str) and text else None
+    if not isinstance(text, str) or not text:
+        logger.debug(
+            "llm-here payload ok but text is missing/non-string; falling back"
+        )
+        return None
+    return text
 
 
 def call_llm(prompt: str, timeout: int = 120) -> str | None:
