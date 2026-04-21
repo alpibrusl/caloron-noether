@@ -375,6 +375,278 @@ def test_call_llm_gemini_api_path(monkeypatch):
     assert _llm.call_llm("hi") == "gemini says hi"
 
 
+# ── llm-here delegation (new primary path) ───────────────────────────────────
+
+
+def _mock_llm_here_on_path(monkeypatch, _llm):
+    """Pretend ``llm-here`` is installed — leave other binaries to the
+    real shutil.which so the fallback path can still observe them if it
+    runs."""
+    real_which = _llm.shutil.which
+
+    def which(cmd):
+        if cmd == "llm-here":
+            return "/usr/local/bin/llm-here"
+        return real_which(cmd)
+
+    monkeypatch.setattr(_llm.shutil, "which", which)
+
+
+class _MockSubprocessResult:
+    def __init__(self, returncode: int, stdout: str, stderr: str = ""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_call_llm_prefers_llm_here_when_installed(monkeypatch):
+    """When ``llm-here`` is on PATH, call_llm dispatches through it
+    instead of falling through to the in-tree provider chain."""
+    from stages.phases import _llm
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return _MockSubprocessResult(
+            returncode=0,
+            stdout='{"schema_version": 1, "ok": true, "text": "via llm-here", "provider_used": "claude-cli"}',
+        )
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(_llm.subprocess, "run", fake_run)
+    # Guard: if the fallback runs, it must be visible as a test failure.
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: pytest.fail("fallback path ran"))
+
+    assert _llm.call_llm("hi") == "via llm-here"
+    assert len(calls) == 1
+    assert calls[0][:2] == ["llm-here", "run"]
+    assert "--auto" in calls[0]
+
+
+def test_call_llm_forwards_provider_override_to_llm_here(monkeypatch):
+    """``CALORON_LLM_PROVIDER=claude-cli`` becomes ``--provider claude-cli``
+    on the llm-here argv — not ``--auto``."""
+    from stages.phases import _llm
+
+    argv_seen: list[str] = []
+
+    def fake_run(argv, **kwargs):
+        argv_seen.extend(argv)
+        return _MockSubprocessResult(
+            returncode=0,
+            stdout='{"ok": true, "text": "ok"}',
+        )
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "claude-cli")
+    monkeypatch.setattr(_llm.subprocess, "run", fake_run)
+
+    _llm.call_llm("hi")
+
+    assert "--provider" in argv_seen
+    # The id string is adjacent to --provider.
+    idx = argv_seen.index("--provider")
+    assert argv_seen[idx + 1] == "claude-cli"
+    assert "--auto" not in argv_seen
+
+
+def test_call_llm_forwards_dangerous_claude_flag(monkeypatch):
+    """``CALORON_ALLOW_DANGEROUS_CLAUDE=1`` becomes ``--dangerous-claude``
+    on the llm-here argv. Same env-var gate caloron has used since v0.4."""
+    from stages.phases import _llm
+
+    argv_seen: list[str] = []
+
+    def fake_run(argv, **kwargs):
+        argv_seen.extend(argv)
+        return _MockSubprocessResult(
+            returncode=0,
+            stdout='{"ok": true, "text": "ok"}',
+        )
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setenv("CALORON_ALLOW_DANGEROUS_CLAUDE", "1")
+    monkeypatch.setattr(_llm.subprocess, "run", fake_run)
+
+    _llm.call_llm("hi")
+
+    assert "--dangerous-claude" in argv_seen
+
+
+def test_call_llm_does_not_forward_dangerous_claude_when_unset(monkeypatch):
+    """Default behaviour: ``--dangerous-claude`` is off unless the env
+    var is explicitly truthy."""
+    from stages.phases import _llm
+
+    argv_seen: list[str] = []
+
+    def fake_run(argv, **kwargs):
+        argv_seen.extend(argv)
+        return _MockSubprocessResult(
+            returncode=0,
+            stdout='{"ok": true, "text": "ok"}',
+        )
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.delenv("CALORON_ALLOW_DANGEROUS_CLAUDE", raising=False)
+    monkeypatch.setattr(_llm.subprocess, "run", fake_run)
+
+    _llm.call_llm("hi")
+
+    assert "--dangerous-claude" not in argv_seen
+
+
+def test_call_llm_falls_back_when_llm_here_exits_non_zero(monkeypatch):
+    """``llm-here run`` exit 1 means "tried but failed" — caloron falls
+    back to its in-tree provider chain."""
+    from stages.phases import _llm
+
+    fallback_calls: list[str] = []
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    # llm-here fails.
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=1, stdout=""),
+    )
+    # Fallback path should be exercised.
+    monkeypatch.setattr(
+        _llm,
+        "_claude_cli",
+        lambda p, t: fallback_calls.append("claude") or "via fallback",
+    )
+
+    assert _llm.call_llm("hi") == "via fallback"
+    assert fallback_calls == ["claude"]
+
+
+def test_call_llm_falls_back_when_llm_here_returns_bad_json(monkeypatch):
+    """Defensive: malformed llm-here output doesn't break caloron."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=0, stdout="not json"),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+def test_call_llm_falls_back_when_llm_here_reports_ok_false(monkeypatch):
+    """``ok: false`` in the llm-here payload = fall through."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(
+            returncode=0,
+            stdout='{"ok": false, "text": null, "error": "no providers reachable"}',
+        ),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+def test_call_llm_falls_back_on_llm_here_subprocess_timeout(monkeypatch):
+    """If the llm-here subprocess itself times out, fall back cleanly."""
+    from stages.phases import _llm
+
+    def timing_out(*_a, **_k):
+        raise _llm.subprocess.TimeoutExpired(cmd=["llm-here"], timeout=5)
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(_llm.subprocess, "run", timing_out)
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+# Review-comment response: each of these pins behaviour the code
+# already defends against but had no regression test for. Addresses
+# PR #22 review items 1, 3-text-guard, and 5.
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", "42", '"string"', '"null"'])
+def test_call_llm_falls_back_on_non_object_json(monkeypatch, payload):
+    """Valid JSON that isn't a dict (e.g. future schema change or wire
+    corruption) must fall through to the local providers without raising
+    ``AttributeError`` on ``payload.get(...)``. Mirrors the same fix
+    applied to agentspec#29's resolver."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=0, stdout=payload),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    # Key: no exception escapes; call_llm returns the fallback text.
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"ok": true, "text": null}',
+        '{"ok": true, "text": ""}',
+        '{"ok": true, "text": 42}',
+        '{"ok": true, "text": ["array", "of", "strings"]}',
+        '{"ok": true}',  # text key missing entirely
+    ],
+)
+def test_call_llm_falls_back_on_malformed_text_field(monkeypatch, payload):
+    """``ok: true`` but ``text`` missing / wrong-type / empty must fall
+    through, not return ``None`` silently from call_llm and skip the
+    fallback. Locks in the ``isinstance(text, str) and text`` guard."""
+    from stages.phases import _llm
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda *a, **k: _MockSubprocessResult(returncode=0, stdout=payload),
+    )
+    monkeypatch.setattr(_llm, "_claude_cli", lambda p, t: "via fallback")
+    assert _llm.call_llm("hi") == "via fallback"
+
+
+def test_call_llm_does_not_forward_unknown_provider_override_to_llm_here(
+    monkeypatch,
+):
+    """``CALORON_LLM_PROVIDER=<unknown>`` must **not** spawn llm-here
+    with a bogus ``--provider <unknown>`` argv. The in-tree fallback
+    also has no such provider, so both paths skip it — but the
+    load-bearing invariant is that llm-here never sees the unknown id.
+    This guards the early-return in ``_call_via_llm_here``."""
+    from stages.phases import _llm
+
+    spawn_calls: list[list[str]] = []
+
+    _mock_llm_here_on_path(monkeypatch, _llm)
+    monkeypatch.setenv("CALORON_LLM_PROVIDER", "not-a-real-provider-id")
+    monkeypatch.setattr(
+        _llm.subprocess,
+        "run",
+        lambda argv, **k: spawn_calls.append(argv)
+        or _MockSubprocessResult(returncode=0, stdout="unused"),
+    )
+
+    # Both the llm-here path and the in-tree fallback skip unknown
+    # providers; result is None. The important assertion is the
+    # non-invocation of llm-here.
+    assert _llm.call_llm("hi") is None
+    assert spawn_calls == [], (
+        f"llm-here should not have been invoked for an unknown provider "
+        f"id, got argv={spawn_calls}"
+    )
+
+
 # ── Original review_po test (unchanged) ──────────────────────────────────────
 
 

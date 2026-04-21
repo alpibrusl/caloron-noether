@@ -20,11 +20,14 @@ regular module that tests import directly.
 """
 
 import json as _json
+import logging
 import os
 import shutil
 import subprocess
 import urllib.error
 import urllib.request
+
+logger = logging.getLogger(__name__)
 
 _ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
 _OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions"
@@ -224,14 +227,168 @@ _DISPATCH = {
 _CLI_PROVIDERS = {"claude-cli", "gemini-cli", "cursor-cli", "opencode"}
 
 
+# Ids caloron uses are 1:1 with the llm-here registry as of llm-here
+# v0.1: claude-cli, gemini-cli, cursor-cli, opencode, anthropic-api,
+# openai-api, gemini-api. Mistral is in llm-here v0.3 but caloron
+# doesn't declare it; we simply don't forward Mistral overrides.
+_LLM_HERE_KNOWN_IDS = {
+    "claude-cli",
+    "gemini-cli",
+    "cursor-cli",
+    "opencode",
+    "anthropic-api",
+    "openai-api",
+    "gemini-api",
+}
+
+
+def _call_via_llm_here(prompt: str, timeout: int) -> str | None:
+    """Try to dispatch via the shared ``llm-here`` binary.
+
+    Returns the provider's text on success, or ``None`` on any failure
+    (binary missing, non-zero exit, bad JSON, empty text). A ``None``
+    return signals the caller to fall back to the in-tree local
+    providers — this keeps llm-here a **soft dependency** through the
+    migration window. Once llm-here is ubiquitous in caloron
+    deployments, the fallback path (and the bulk of this module) can
+    be deleted in a follow-up PR.
+
+    Forwarded knobs:
+
+    - ``CALORON_LLM_PROVIDER`` → ``--provider <id>``.
+    - ``CALORON_LLM_SKIP_CLI`` — honoured natively by llm-here as one
+      of four aliases, so it doesn't need explicit forwarding.
+    - ``CALORON_ALLOW_DANGEROUS_CLAUDE`` → ``--dangerous-claude``.
+    - ``timeout`` — caller-supplied, clamped to 300 s before forwarding
+      so a runaway ``timeout`` kwarg doesn't stretch the subprocess past
+      five minutes. llm-here applies its own per-provider timeouts
+      below this ceiling.
+
+    Every failure path logs a ``logger.debug`` breadcrumb so deployments
+    stuck on the fallback can see *why* via ``logging.basicConfig(
+    level=logging.DEBUG)``.
+    """
+    if not shutil.which("llm-here"):
+        logger.debug("llm-here not on PATH; using in-tree fallback")
+        return None
+
+    override = os.environ.get("CALORON_LLM_PROVIDER", "").strip()
+    if override and override not in _LLM_HERE_KNOWN_IDS:
+        # Providers caloron's local code knows about but llm-here doesn't
+        # (none today; future-proofing). Skip llm-here, fall back.
+        logger.debug(
+            "CALORON_LLM_PROVIDER=%r not in llm-here registry; falling back",
+            override,
+        )
+        return None
+
+    dangerous = os.environ.get("CALORON_ALLOW_DANGEROUS_CLAUDE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    argv = ["llm-here", "run", "--timeout", str(min(timeout, 300))]
+    if override:
+        argv.extend(["--provider", override])
+    else:
+        argv.append("--auto")
+    if dangerous:
+        argv.append("--dangerous-claude")
+
+    try:
+        result = subprocess.run(
+            argv,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        # OSError covers FileNotFoundError (PATH race: llm-here was present
+        # at `shutil.which` time and gone a millisecond later) and
+        # PermissionError (binary on PATH but not executable). Fall back.
+        logger.debug("llm-here spawn failed: %s", exc)
+        return None
+
+    # llm-here exit codes: 0 = success, 1 = "attempted but failed", 2 =
+    # internal error. For 1 we parse the payload below and log the
+    # provider's own error; for 2 the stderr is the only diagnostic we
+    # have. Both paths fall back to local providers.
+    if result.returncode == 2:
+        logger.debug(
+            "llm-here exit 2 (internal error); stderr=%s; falling back",
+            result.stderr.strip(),
+        )
+        return None
+    if result.returncode not in (0, 1):
+        logger.debug(
+            "llm-here unexpected exit %d; stderr=%s; falling back",
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return None
+
+    try:
+        payload = _json.loads(result.stdout)
+    except _json.JSONDecodeError as exc:
+        logger.debug("llm-here emitted invalid JSON: %s; falling back", exc)
+        return None
+
+    # Schema-shape defence: a future breaking change or wire corruption
+    # could return valid JSON that isn't the documented ``{ok, text,
+    # ...}`` object. Refuse rather than raise `AttributeError` on
+    # ``payload.get``, which would propagate out of `_call_via_llm_here`
+    # and break `call_llm` entirely before the fallback could run.
+    if not isinstance(payload, dict):
+        logger.debug(
+            "llm-here returned non-object JSON (%s); falling back",
+            type(payload).__name__,
+        )
+        return None
+
+    if not payload.get("ok"):
+        logger.debug(
+            "llm-here reported ok=false; error=%r; falling back",
+            payload.get("error"),
+        )
+        return None
+
+    text = payload.get("text")
+    if not isinstance(text, str) or not text:
+        logger.debug(
+            "llm-here payload ok but text is missing/non-string; falling back"
+        )
+        return None
+    return text
+
+
 def call_llm(prompt: str, timeout: int = 120) -> str | None:
     """Try every configured provider in order; return the first non-empty result.
+
+    Primary path: delegate to the shared ``llm-here`` binary when
+    installed (handles all four subscription CLIs + three APIs with
+    bounded timeout, child-kill on expiry, and no key leakage in
+    errors).
+
+    Fallback path: the in-tree provider chain below, preserved for
+    deployments where ``llm-here`` is not yet installed. This is the
+    original implementation; it will be deleted in a follow-up PR once
+    llm-here is ubiquitous.
 
     Set ``CALORON_LLM_SKIP_CLI=1`` to skip subprocess-based providers in
     the auto-chain. Intended for sandboxed environments (like Noether's
     nix executor) where CLI auth state isn't mounted and subprocess
     calls stall. Explicit ``CALORON_LLM_PROVIDER`` always wins.
     """
+    # Primary: llm-here (if installed and the override is compatible).
+    out = _call_via_llm_here(prompt, timeout)
+    if out is not None:
+        return out
+
+    # Fallback: in-tree provider chain.
     override = os.environ.get("CALORON_LLM_PROVIDER", "").strip()
     skip_cli = os.environ.get("CALORON_LLM_SKIP_CLI", "").strip() in ("1", "true", "yes")
 
