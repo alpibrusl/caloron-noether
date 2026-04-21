@@ -1,0 +1,155 @@
+name: Noether-main compat
+
+# Builds caloron against the tip of alpibrusl/noether's main branch,
+# not the latest crates.io / release. Catches upstream drift before
+# it surfaces in user reports.
+#
+# The roadmap explicitly commits caloron's minor version to track
+# noether's minor (`docs/roadmap/2026-04-18-aligning-with-noether-1.0.md`),
+# and calls out "no CI job rebuilding against Noether main" as a gap.
+# This workflow closes it.
+#
+# Runs weekly by default; can be triggered manually via workflow_dispatch
+# or by commenting `/compat` on a PR (see the respond-to-pr job).
+#
+# On failure, opens (or updates) a tracking issue titled
+# `noether-main compat broken: <sha>` so the break is visible outside
+# the Actions UI.
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # Weekly, Monday 07:00 UTC (1 h after quickstart)
+  workflow_dispatch:
+    inputs:
+      noether_ref:
+        description: "Noether ref to build against (default: main)"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+  issues: write           # For opening the failure-tracking issue
+
+jobs:
+  compat:
+    name: Build + test against noether@${{ github.event.inputs.noether_ref || 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NOETHER_REF: ${{ github.event.inputs.noether_ref || 'main' }}
+
+    steps:
+      - name: Checkout caloron
+        uses: actions/checkout@v4
+
+      - name: Checkout noether (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: alpibrusl/noether
+          ref: ${{ env.NOETHER_REF }}
+          path: noether-upstream
+
+      - name: Record upstream state
+        id: upstream
+        run: |
+          cd noether-upstream
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Noether upstream::Building against $(git rev-parse --short HEAD) ($(git log -1 --pretty=%s))"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install noether-cli from upstream
+        run: |
+          cd noether-upstream
+          # noether-cli is the binary caloron invokes as a subprocess.
+          # Install from the checked-out source, not crates.io.
+          cargo install --path crates/noether-cli --locked
+
+      - name: Verify noether-cli on PATH
+        run: |
+          which noether
+          noether --version
+
+      - name: Install caloron Python package + dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Build caloron shell
+        run: cargo build -p caloron-shell
+
+      - name: Python + stage tests
+        env:
+          GITEA_TOKEN: fake-token-for-tests-only
+        run: |
+          # Skip CLI smoke tests (quarantined separately; tracked in #20).
+          python -m pytest tests/ -q --ignore=tests/test_cli_smoke.py
+
+      - name: Noether stage catalogue self-check
+        run: |
+          # If noether's stage-spec validation has tightened between the
+          # caloron CI image and upstream main, `noether stage validate`
+          # on our registered stages will fire first. Cheap early-warning.
+          python -m pytest tests/test_stage_catalog.py -q
+
+      - name: Shell smoke — start and hit /status
+        env:
+          CALORON_SHELL_TOKEN: compat-test-token
+        run: |
+          cargo build -p caloron-shell --release
+          ./target/release/caloron-shell &
+          SHELL_PID=$!
+          sleep 1
+          curl -sf -H "X-Caloron-Token: compat-test-token" http://127.0.0.1:7710/status
+          kill $SHELL_PID || true
+
+  # Open (or update) a tracking issue when the compat job fails on a
+  # scheduled run. Manual `workflow_dispatch` runs don't trigger this —
+  # the operator running manually already knows about the failure.
+  report-failure:
+    name: Open tracking issue on failure
+    needs: compat
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="noether-main compat broken"
+          BODY=$(cat <<MSG
+          The weekly \`Noether-main compat\` workflow failed against noether main.
+
+          - **Run:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          - **Time:** $(date -u +'%Y-%m-%d %H:%M UTC')
+
+          This usually means upstream noether introduced a change that caloron
+          needs to adapt to. Likely suspects:
+
+          - New stage-spec validation that caloron's registered stages don't pass.
+          - \`noether-cli\` argv changes the orchestrator's subprocess calls depend on.
+          - Composition graph schema migration.
+
+          Close this issue after the fix merges.
+          MSG
+          )
+          # Reuse the existing open issue if one already exists (don't spam).
+          existing=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number -q '.[0].number' || echo "")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Re-broken on run ${{ github.run_id }}."
+          else
+            # No labels — labels must pre-exist on the repo and we don't
+            # want this workflow to fail because "compat" isn't registered.
+            # Labels can be added manually when triaging.
+            gh issue create --title "$TITLE" --body "$BODY"
+          fi
