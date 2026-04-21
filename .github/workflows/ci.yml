@@ -121,6 +121,33 @@ jobs:
       - name: ruff check
         run: ruff check caloron orchestrator tests
 
+  python-types:
+    # Incremental pyright pass on an allowlist of typed files. See
+    # issue #17 and orchestrator/types.py for the rollout plan. The
+    # allowlist is kept in pyrightconfig.json:include and grows one
+    # file at a time; pyright must be clean across the whole list for
+    # CI to pass.
+    name: Python Types (pyright allowlist)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install pyright
+        run: npm install -g pyright@1.1.408
+      - name: Verify pyright
+        run: pyright --version
+      - name: Pyright check (allowlisted files only)
+        # Any file listed in pyrightconfig.json::include MUST type-check.
+        # Adding a file to the allowlist is a deliberate PR step —
+        # incremental expansion is the point.
+        run: pyright
+
   python-tests:
     name: Caloron CLI Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

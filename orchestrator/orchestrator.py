@@ -31,6 +31,12 @@ from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
 from skill_store import SkillStore
 from template_store import scaffold_project
 
+# Use bare-name import to match the convention of the surrounding
+# sibling imports (`agent_configurator`, `hr_agent`, etc.). The
+# orchestrator runs with its own directory on sys.path; a relative
+# import breaks under that loader pattern.
+from types_ import BlockedTaskDict, TaskDict  # noqa: I001
+
 # Profile integration (requires agentspec with profile module)
 try:
     from agentspec.parser.manifest import AgentManifest as _AgentManifest
@@ -811,7 +817,7 @@ def build_po_context(learnings: dict) -> str:
     return ctx
 
 
-def _resolved_skills_for(task: dict) -> set[str]:
+def _resolved_skills_for(task: TaskDict) -> set[str]:
     """Collect the skills/tools the resolver actually attached to a task.
 
     Looks across three places because the code path differs depending on
@@ -831,18 +837,17 @@ def _resolved_skills_for(task: dict) -> set[str]:
         val = task.get(key) or []
         if isinstance(val, list):
             out.update(str(v).lower() for v in val)
-    agentspec = task.get("agentspec") or {}
-    if isinstance(agentspec, dict):
-        for key in ("tools",):
-            val = agentspec.get(key) or []
-            if isinstance(val, list):
-                out.update(str(v).lower() for v in val)
+    agentspec_bridge = task.get("agentspec") or {}
+    if isinstance(agentspec_bridge, dict):
+        tools_val = agentspec_bridge.get("tools") or []
+        if isinstance(tools_val, list):
+            out.update(str(v).lower() for v in tools_val)
     return out
 
 
 def _enforce_required_skills(
-    tasks: list[dict],
-) -> tuple[list[dict], list[dict]]:
+    tasks: list[TaskDict],
+) -> tuple[list[TaskDict], list[BlockedTaskDict]]:
     """Split ``tasks`` into (runnable, blocked) by ``required_skills``.
 
     A task with ``required_skills: []`` or no field at all is always
@@ -853,26 +858,24 @@ def _enforce_required_skills(
     Blocked tasks are NOT silently dropped — callers log them so the
     retro captures the config gap as a first-class blocker.
     """
-    runnable: list[dict] = []
-    blocked: list[dict] = []
+    runnable: list[TaskDict] = []
+    blocked: list[BlockedTaskDict] = []
     for task in tasks:
         required = task.get("required_skills") or []
         if not required:
             runnable.append(task)
             continue
         resolved = _resolved_skills_for(task)
-        missing = [
-            r for r in required if str(r).lower() not in resolved
-        ]
+        missing = [r for r in required if str(r).lower() not in resolved]
         if missing:
             blocked.append(
-                {
-                    "id": task.get("id", "?"),
-                    "required": list(required),
-                    "resolved": sorted(resolved),
-                    "missing": missing,
-                    "task": task,
-                }
+                BlockedTaskDict(
+                    id=task.get("id", "?"),
+                    required=list(required),
+                    resolved=sorted(resolved),
+                    missing=missing,
+                    task=task,
+                )
             )
         else:
             runnable.append(task)
