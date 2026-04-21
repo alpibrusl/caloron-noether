@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -31,11 +32,12 @@ from post_sprint_deploy import post_sprint_deploy, print_deploy_summary
 from skill_store import SkillStore
 from template_store import scaffold_project
 
-# Use bare-name import to match the convention of the surrounding
-# sibling imports (`agent_configurator`, `hr_agent`, etc.). The
-# orchestrator runs with its own directory on sys.path; a relative
-# import breaks under that loader pattern.
+# Bare-name imports match the convention of the surrounding sibling
+# imports (`agent_configurator`, `hr_agent`, etc.). The orchestrator
+# runs with its own directory on sys.path; a relative import breaks
+# under that loader pattern.
 from types_ import BlockedTaskDict, TaskDict  # noqa: I001
+from validation import require_branch, require_id  # noqa: I001
 
 # Profile integration (requires agentspec with profile module)
 try:
@@ -47,7 +49,27 @@ except ImportError:
 
 # ── Config ──────────────────────────────────────────────────────────────────
 
-GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "c50bad400bd9b8cde3e930cca052eae6ded71f7b")
+
+def _require_gitea_token() -> str:
+    """Read GITEA_TOKEN from the environment or fail loudly at import time.
+
+    Previously defaulted to a hardcoded dev token when unset; that made
+    deployments that forgot to set the env var use the baked-in token
+    silently, which is the opposite of the desired failure mode. See
+    issue #18.
+    """
+    token = os.environ.get("GITEA_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError(
+            "GITEA_TOKEN environment variable is required. "
+            "Create a Gitea API token (Settings → Applications → "
+            "Generate New Token) and export it before running. "
+            "See docs/deployment.md if you need guidance."
+        )
+    return token
+
+
+GITEA_TOKEN = _require_gitea_token()
 REPO = os.environ.get("REPO", "caloron/full-loop")
 SANDBOX = os.environ.get("SANDBOX", str(Path(__file__).parent.parent.parent / "scripts" / "sandbox-agent.sh"))
 WORK = os.environ.get("WORK", "/tmp/caloron-full-loop")
@@ -397,7 +419,21 @@ def gitea(method: str, path: str, data: dict | None = None) -> dict:
 
 def git_merge_branch(branch: str, message: str) -> bool:
     """Merge a branch into main via git inside the Gitea container.
-    Temporarily disables the pre-receive hook (Gitea 1.22 merge API is broken for local setups)."""
+    Temporarily disables the pre-receive hook (Gitea 1.22 merge API is broken for local setups).
+
+    Validates ``branch`` and shell-escapes ``message`` before constructing
+    the shell script — the script passes through ``docker exec ... sh -c``,
+    so unescaped input becomes an injection path. See issue #19.
+    """
+    # Defense in depth: reject at the boundary rather than rely on
+    # upstream callers to sanitise.
+    require_branch("branch", branch)
+
+    # Message is arbitrary human text (PR titles, commit messages) and
+    # legitimately contains spaces, quotes, etc. — `shlex.quote` is the
+    # correct escape hatch for shell-interpolated strings.
+    quoted_message = shlex.quote(message)
+
     repo_path = f"/data/git/repositories/{REPO}.git"
     script = (
         f"chmod -x {repo_path}/hooks/pre-receive 2>/dev/null; "
@@ -405,7 +441,7 @@ def git_merge_branch(branch: str, message: str) -> bool:
         f"git init -q && "
         f"git fetch {repo_path} main:main {branch}:{branch} 2>/dev/null && "
         f"git checkout main 2>/dev/null && "
-        f"git merge {branch} -m '{message}' 2>/dev/null && "
+        f"git merge {branch} -m {quoted_message} 2>/dev/null && "
         f"git push {repo_path} main:main 2>/dev/null; "
         f"RET=$?; "
         f"chmod +x {repo_path}/hooks/pre-receive 2>/dev/null; "
@@ -418,6 +454,16 @@ def git_merge_branch(branch: str, message: str) -> bool:
 
 
 def upload_file(branch: str, filepath: str, content: str, msg: str):
+    # Validate branch at the boundary — it's interpolated into the Gitea
+    # URL path and then into a ref query-param. Unicode or control chars
+    # here would either break the request or produce a surprising commit
+    # target. See issue #19.
+    require_branch("branch", branch)
+    # `filepath` is the target repo path (e.g. `src/foo.py`). Permissive
+    # pattern allows `/` and `.` for directory trees. Length is the same
+    # 128 cap as branch names.
+    require_branch("filepath", filepath)
+
     b64 = base64.b64encode(content.encode()).decode()
     existing = gitea("GET", f"/api/v1/repos/{REPO}/contents/{filepath}?ref={branch}")
     sha = existing.get("sha", "")
@@ -463,6 +509,13 @@ def run_agent_with_supervision(
     to claude-code explicitly, which silently broke for projects
     configured with gemini-cli / codex-cli / etc.
     """
+    # Validate at entry: `task_id` becomes a branch-name fragment and
+    # an issue-body interpolation downstream. PO-generated ids that
+    # drift from the expected pattern (shell metacharacters, unicode,
+    # leading `-`) need to be caught here rather than at the git/gitea
+    # boundary where the error is less recoverable. See issue #19.
+    require_id("task_id", task_id)
+
     effective_framework = framework or FRAMEWORK
 
     for attempt in range(1, MAX_RETRIES + 1):
