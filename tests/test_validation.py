@@ -104,6 +104,37 @@ class TestIsValidBranch:
         assert not is_valid_branch("fóo")
         assert not is_valid_branch("\u202efoo")
 
+    def test_rejects_path_traversal(self):
+        # The character class `[a-z0-9._/-]` accepts `.` and `/`
+        # individually, so a `..` sequence passes the regex. An
+        # explicit substring blocklist closes that gap. Regression
+        # guard for the bug caught in the PR #24 review.
+        for bad in [
+            "../etc/passwd",
+            "..",
+            "foo/../bar",
+            "a/../../b",
+            "../../secret",
+            "foo..bar",  # inline `..` without slashes
+            "..foo",  # leading
+            "foo..",  # trailing
+        ]:
+            assert not is_valid_branch(bad), f"should reject {bad!r}"
+
+    def test_rejects_leading_slash(self):
+        # An absolute-looking ref flips `git fetch` semantics.
+        for bad in ["/main", "/etc/passwd", "/"]:
+            assert not is_valid_branch(bad), f"should reject {bad!r}"
+
+    def test_rejects_leading_dash(self):
+        # argv flag hijack: `git merge -rf` etc. A trailing dash is
+        # fine; only leading is forbidden.
+        for bad in ["-rf", "--force", "-delete"]:
+            assert not is_valid_branch(bad), f"should reject {bad!r}"
+        # Legitimate use of dashes internally/at end still passes.
+        assert is_valid_branch("feat-abc")
+        assert is_valid_branch("abc-")
+
 
 # ── require_* — typed rejection helpers ───────────────────────────────────────
 
@@ -126,6 +157,13 @@ class TestRequireHelpers:
     def test_require_branch_raises_with_kind_in_message(self):
         with pytest.raises(ValueError, match="invalid branch"):
             require_branch("branch", "feat;rm -rf /")
+
+    def test_require_branch_mentions_traversal_constraint_in_message(self):
+        # The error message lists the rules — when a traversal
+        # substring triggers the rejection, the operator should see
+        # the explicit `no '..'` cue, not just the pattern.
+        with pytest.raises(ValueError, match="no '\\.\\.'"):
+            require_branch("branch", "../etc/passwd")
 
     def test_require_message_includes_offending_value(self):
         # Defensive for debuggability: the raised error must include the

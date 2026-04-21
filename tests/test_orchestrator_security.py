@@ -160,6 +160,8 @@ def test_git_merge_branch_shell_escapes_message(orch, monkeypatch):
     monkeypatch.setattr(orch.subprocess, "run", fake_run)
 
     # Nasty message with every shell-injection character.
+    import shlex
+
     naughty = "title with 'quotes' and $(rm -rf /) and `whoami` and \"double\""
     git_merge_branch("feat/safe", naughty)
 
@@ -167,21 +169,18 @@ def test_git_merge_branch_shell_escapes_message(orch, monkeypatch):
     assert len(captured_argv) == 1
     script = captured_argv[0][-1]
 
-    # The raw injection characters must NOT appear unquoted. shlex.quote
-    # wraps in single quotes and escapes embedded single quotes via
-    # `'"'"'`, so the nasty string survives but as a literal argument.
-    assert "rm -rf /" not in script.split("git merge")[1].split("2>/dev/null")[0] or (
-        "'" in script
-    ), "naughty message must be shell-quoted, not raw-interpolated"
-    # Double-sanity: shlex.quote always wraps in single quotes when input
-    # contains anything non-trivial.
-    assert "title with" in script  # the content is there
-    # And the `$(rm -rf /)` substitution — when properly quoted — appears
-    # as a literal part of the quoted string, not as a shell command.
-    import shlex
-
+    # The load-bearing assertion: the message passes through ``shlex.quote``
+    # *before* interpolation, so its literal quoted form (including the
+    # single quotes shlex wraps it in, plus the `'"'"'` sequences that
+    # escape the embedded apostrophes) must appear verbatim in the final
+    # script. This guards against regressions like dropping the quote
+    # call or switching back to an f-string with raw apostrophes around
+    # `{message}`.
     expected_quoted = shlex.quote(naughty)
-    assert expected_quoted in script
+    assert expected_quoted in script, (
+        "git_merge_branch must shlex-quote the message before "
+        "interpolating into the shell script; did a refactor drop it?"
+    )
 
 
 def test_upload_file_rejects_invalid_branch(orch):

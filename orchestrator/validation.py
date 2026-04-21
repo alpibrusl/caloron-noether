@@ -37,6 +37,15 @@ import re
 _ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,64}$")
 _BRANCH_PATTERN = re.compile(r"^[a-z0-9._/-]{1,128}$")
 
+# Disallowed substrings / leading characters for branch names. The
+# character class above permits `.` and `/` individually, which means
+# a literal `..` sequence also matches — enough to constitute a
+# path-traversal vector when the value flows into a filesystem path
+# or URL. Leading `/` would hand git an absolute-looking ref; leading
+# `-` would be interpreted as an argv flag by any subprocess callee.
+_BRANCH_FORBIDDEN_SUBSTRINGS = ("..",)
+_BRANCH_FORBIDDEN_PREFIXES = ("/", "-")
+
 
 def is_valid_id(value: object) -> bool:
     """True iff `value` is a plain ASCII lowercase id suitable for use as
@@ -55,14 +64,26 @@ def is_valid_branch(value: object) -> bool:
 
     Permissive vs `is_valid_id`: allows `/` and `.` so branches like
     `feat/foo` and `v0.1.0` pass. Still rejects shell metacharacters,
-    whitespace, quote characters, and unicode. Length 1-128.
+    whitespace, quote characters, unicode, path-traversal sequences
+    (``..``), leading ``/`` (absolute-looking refs), and leading ``-``
+    (argv flag hijacks). Length 1-128.
+
+    The pattern alone would accept ``..`` as two adjacent dots — the
+    character class permits both — so we explicitly forbid that
+    substring. Same reasoning for the leading-character blocklist.
 
     Note: this is *not* a full git ref-format validator — it's the
     subset caloron actually uses plus a blocklist for dangerous
     characters. See `git-check-ref-format(1)` for the full picture if
     you need to accept wider inputs.
     """
-    return isinstance(value, str) and bool(_BRANCH_PATTERN.fullmatch(value))
+    if not (isinstance(value, str) and _BRANCH_PATTERN.fullmatch(value)):
+        return False
+    if any(sub in value for sub in _BRANCH_FORBIDDEN_SUBSTRINGS):
+        return False
+    if value.startswith(_BRANCH_FORBIDDEN_PREFIXES):
+        return False
+    return True
 
 
 def require_id(kind: str, value: object) -> str:
@@ -80,7 +101,11 @@ def require_id(kind: str, value: object) -> str:
             f"invalid {kind}: {value!r} "
             f"(must match ^[a-z0-9_-]{{1,64}}$)"
         )
-    return value  # type: ignore[return-value]
+    # `is_valid_id` just confirmed `value` is a `str`; assert the
+    # narrowing explicitly so pyright can see it and we don't need
+    # `# type: ignore[return-value]`.
+    assert isinstance(value, str)
+    return value
 
 
 def require_branch(kind: str, value: object) -> str:
@@ -88,6 +113,9 @@ def require_branch(kind: str, value: object) -> str:
     if not is_valid_branch(value):
         raise ValueError(
             f"invalid {kind}: {value!r} "
-            f"(must match ^[a-z0-9._/-]{{1,128}}$)"
+            f"(must match ^[a-z0-9._/-]{{1,128}}$, no '..', "
+            f"no leading '/' or '-')"
         )
-    return value  # type: ignore[return-value]
+    # See `require_id` for the assert rationale.
+    assert isinstance(value, str)
+    return value

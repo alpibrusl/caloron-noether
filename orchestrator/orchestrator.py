@@ -34,8 +34,9 @@ from template_store import scaffold_project
 
 # Bare-name imports match the convention of the surrounding sibling
 # imports (`agent_configurator`, `hr_agent`, etc.). The orchestrator
-# runs with its own directory on sys.path; a relative import breaks
-# under that loader pattern.
+# is loaded with its own directory on `sys.path`; a relative import
+# works under the test shim but not under `python orchestrator/
+# orchestrator.py` invocation, so bare-name is strictly more portable.
 from types_ import BlockedTaskDict, TaskDict  # noqa: I001
 from validation import require_branch, require_id  # noqa: I001
 
