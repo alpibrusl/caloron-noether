@@ -34,67 +34,67 @@ jobs:
       - name: Test DAG evaluate (unblock)
         run: |
           echo '{"state":{"tasks":{"t1":{"status":"Pending","depends_on":[],"agent_id":"a1"}}},"events":[],"stall_threshold_m":20}' \
-            | python3 stages/dag/evaluate.py \
+            | python3 stages/_run_stage.py stages/dag/evaluate.py \
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['state']['tasks']['t1']['status']=='Ready'"
 
       - name: Test DAG evaluate (PR merge + unblock)
         run: |
           echo '{"state":{"tasks":{"t1":{"status":"InReview","depends_on":[],"agent_id":"a1","pr_number":100,"issue_number":1,"started_at":"2026-04-08T10:00:00Z"},"t2":{"status":"Pending","depends_on":["t1"],"agent_id":"a2"}}},"events":[{"type":"pr_merged","pr_number":100}],"stall_threshold_m":60}' \
-            | python3 stages/dag/evaluate.py \
+            | python3 stages/_run_stage.py stages/dag/evaluate.py \
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['state']['tasks']['t1']['status']=='Done'; assert d['state']['tasks']['t2']['status']=='Ready'"
 
       - name: Test DAG is_complete
         run: |
           echo '{"state":{"tasks":{"t1":{"status":"Done"},"t2":{"status":"Done"}}}}' \
-            | python3 stages/dag/is_complete.py \
+            | python3 stages/_run_stage.py stages/dag/is_complete.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['complete']==True"
 
       - name: Test DAG validate (cycle detection)
         run: |
           echo '{"dag":{"tasks":{"t1":{"depends_on":["t2"],"agent_id":"a"},"t2":{"depends_on":["t1"],"agent_id":"b"}}}}' \
-            | python3 stages/dag/validate.py \
+            | python3 stages/_run_stage.py stages/dag/validate.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['valid']==False"
 
       - name: Test health check
         run: |
           echo '{"agents":{"a1":{"last_heartbeat_at":"2020-01-01T00:00:00Z","task_started_at":"2020-01-01T00:00:00Z"}},"stall_threshold_m":20}' \
-            | python3 stages/supervisor/check_health.py \
+            | python3 stages/_run_stage.py stages/supervisor/check_health.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['results'][0]['status']=='stalled'"
 
       - name: Test intervention decision
         run: |
           echo '{"results":[{"agent_id":"a1","status":"stalled","minutes_since":30}],"interventions":{}}' \
-            | python3 stages/supervisor/decide_intervention.py \
+            | python3 stages/_run_stage.py stages/supervisor/decide_intervention.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['actions'][0]['action']=='probe'"
 
       - name: Test KPI computation
         run: |
           echo '{"state":{"tasks":{"t1":{"status":"Done"},"t2":{"status":"Done"}}},"started_at":"2026-04-08T10:00:00Z","ended_at":"2026-04-08T14:00:00Z"}' \
-            | python3 stages/retro/compute_kpis.py \
+            | python3 stages/_run_stage.py stages/retro/compute_kpis.py \
             | python3 -c "import json,sys; assert json.load(sys.stdin)['completion_rate']==1.0"
 
       - name: Test unblocked tasks
         run: |
           echo '{"state":{"tasks":{"t1":{"status":"Ready","title":"Test","agent_id":"a1"},"t2":{"status":"Pending","title":"Test2","agent_id":"a2"}}}}' \
-            | python3 stages/dag/unblocked_tasks.py \
+            | python3 stages/_run_stage.py stages/dag/unblocked_tasks.py \
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['ready_tasks'])==1; assert d['ready_tasks'][0]['task_id']=='t1'"
 
       - name: Test analyze feedback (no feedback)
         run: |
           echo '{"feedback_items":[],"kpis":{}}' \
-            | python3 stages/retro/analyze_feedback.py \
+            | python3 stages/_run_stage.py stages/retro/analyze_feedback.py \
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['sentiment']=='neutral'"
 
       - name: Test analyze feedback (with feedback)
         run: |
           echo '{"feedback_items":[{"is_parsed_yaml":true,"parsed":{"task_clarity":3,"blockers":["unclear spec"],"self_assessment":"completed","tokens_consumed":5000}}],"kpis":{"completion_rate":1.0}}' \
-            | python3 stages/retro/analyze_feedback.py \
+            | python3 stages/_run_stage.py stages/retro/analyze_feedback.py \
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['themes'])>0"
 
       - name: Test compose message
         run: |
           echo '{"agent_id":"a1","task_title":"Fix bug","health_status":"stalled","action":"probe"}' \
-            | python3 stages/supervisor/compose_message.py \
+            | python3 stages/_run_stage.py stages/supervisor/compose_message.py \
             | python3 -c "import json,sys; assert 'a1' in json.load(sys.stdin)['message']"
 
   docs:
