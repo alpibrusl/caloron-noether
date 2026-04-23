@@ -27,11 +27,20 @@ import pytest
 
 # Early-skip with a diagnostic message if the CLI's runtime deps are
 # missing, rather than letting 19 individual tests fail with the same
-# unhelpful `ModuleNotFoundError`. See the module docstring for the
-# fix (pip install the package with dev extras).
+# unhelpful error. See the module docstring for the fix (pip install
+# the package with dev extras).
+#
+# Catch ``ImportError`` (not just ``ModuleNotFoundError``): the common
+# case is a missing ``typer`` which raises ``ModuleNotFoundError``, but
+# partial import failures elsewhere in the ``caloron.cli.main`` dep
+# chain — shared-library load failures, ``from foo import bar`` where
+# ``bar`` doesn't exist, packaging with dist-info but missing runtime
+# files — raise plain ``ImportError``. Catching the superclass covers
+# both without swallowing unrelated exceptions
+# (``SyntaxError``/``AttributeError``/etc. still propagate).
 try:
     from caloron.cli import main as _cli_import_probe  # noqa: F401 — side-effecting import check
-except ModuleNotFoundError as _exc:
+except ImportError as _exc:
     pytest.skip(
         f"caloron.cli is not importable ({_exc}). "
         "Run `pip install -e .[dev]` from the repo root to install the "
