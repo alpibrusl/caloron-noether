@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast  # noqa: I001
 
 from agent_configurator import configure_agent, print_config_summary
 from agent_versioning import AgentVersionStore, auto_evolve_agents, print_agent_history
@@ -1194,7 +1195,12 @@ Do not inflate to 2-3 tasks if the goal is smaller; do not collapse to
     # stopped a sprint — users saw mystery "agent didn't use X" failures
     # on tasks that needed a tool that just wasn't in the environment.
     # Now: fail-fast with a clear error.
-    tasks, blocked_tasks = _enforce_required_skills(tasks)
+    #
+    # ``run_hr_agent`` / ``enrich_tasks_with_agentspec`` return untyped
+    # ``list[dict]``; the ``cast`` documents the TaskDict contract this
+    # call relies on without forcing hr_agent/agentspec_bridge to be
+    # typed first. Remove the cast when those modules get annotated.
+    tasks, blocked_tasks = _enforce_required_skills(cast(list[TaskDict], tasks))
     if blocked_tasks:
         print()
         print("--- ⚠️  Required-skills enforcement ---")
@@ -1289,15 +1295,22 @@ Do not inflate to 2-3 tasks if the goal is smaller; do not collapse to
             if scaffold.get("files"):
                 print(f"  Scaffold: {scaffold['template_name']} ({len(scaffold['files'])} files)")
 
-            # Configure the agent's worktree with skill-specific files
-            if task.get("agentspec") and "error" not in task["agentspec"]:
-                config_result = configure_agent_from_spec(project, task)
+            # Configure the agent's worktree with skill-specific files.
+            # Bind ``agentspec`` to a local so pyright narrows through
+            # the truthiness check into the ``"error" not in`` probe —
+            # ``task["agentspec"]`` twice wouldn't narrow the second
+            # access. ``configure_agent_from_spec`` / ``configure_agent``
+            # live in untyped sibling modules; cast to ``dict`` at the
+            # boundary until those modules are annotated (#17 Pass 3+).
+            agentspec = task.get("agentspec") or {}
+            if agentspec and "error" not in agentspec:
+                config_result = configure_agent_from_spec(project, cast(dict[str, Any], task))
                 config_result.get("extra_flags", [])
                 files = config_result.get("files_written", [])
                 if files:
                     print(f"  AgentSpec config: {', '.join(files)}")
             else:
-                config_result = configure_agent(project, task, framework)
+                config_result = configure_agent(project, cast(dict[str, Any], task), framework)
                 config_result.get("extra_flags", [])
                 print_config_summary(project, framework)
 
@@ -1563,8 +1576,11 @@ or config/ are all fair game). When done, stop.{_conventions_block(CONVENTIONS)}
         print()
         print("  AgentSpec evolution:")
         agents_dir = os.path.join(WORK, "agents")
+        # Cast through ``list[dict]`` for the untyped agentspec_bridge
+        # signature — same reasoning as the enforce-required-skills
+        # cast above; drop when agentspec_bridge is annotated (#17).
         agentspec_evolutions = auto_evolve_with_agentspec(
-            tasks, retro_summary, feedback_data,
+            cast(list[dict[str, Any]], tasks), retro_summary, feedback_data,
             f"sprint-{sprint_number}", agents_dir)
         print_evolution_summary(agentspec_evolutions)
     print()
