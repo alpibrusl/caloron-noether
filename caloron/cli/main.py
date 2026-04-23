@@ -44,6 +44,12 @@ app = ACLIApp(
     name="caloron",
     version=__version__,
     help="Autonomous AI sprint orchestration",
+    skill_description="Run autonomous AI sprints with signed retros and agent portfolios.",
+    skill_when_to_use=(
+        "Use `caloron sprint \"<goal>\"` when a task spans multiple files and "
+        "benefits from a plan→code→review→merge→retro loop. Skip for single-line "
+        "fixes or exploratory refactors."
+    ),
 )
 
 

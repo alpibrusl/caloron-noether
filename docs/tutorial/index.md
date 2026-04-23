@@ -280,7 +280,7 @@ Do NOT use caloron for:
 - `caloron show <id>` — see a past sprint's retro
 - `caloron metrics` — aggregated KPIs
 
-See CALORON_SKILLS.md for the full CLI reference.
+See CALORON_SKILL.md for the full CLI reference.
 ```
 
 ### Cursor
@@ -306,7 +306,7 @@ source of truth for past agent work — read them before planning new sprints.
 
 ### Copilot / Gemini / Aider / Codex / opencode
 
-Same pattern. Each assistant that can run commands reads `CALORON_SKILLS.md` and knows it can call `caloron` directly.
+Same pattern. Each assistant that can run commands reads `CALORON_SKILL.md` and knows it can call `caloron` directly.
 
 ### The assistant-orchestrates-caloron flow
 
