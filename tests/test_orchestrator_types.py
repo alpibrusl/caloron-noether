@@ -64,12 +64,23 @@ class TestTaskDict:
         assert t.get("required_skills") == ["file-write"]
         assert t.get("agentspec", {}).get("tools") == ["pytest-mcp"]
 
-    def test_all_fields_are_optional(self):
-        # total=False means every key is optional at runtime (and for
-        # pyright's get/membership semantics). An empty dict is a
-        # legal TaskDict — useful during construction / migration.
-        t: TaskDict = {}
-        assert dict(t) == {}
+    def test_only_id_and_title_are_required(self):
+        # After the #17 Pass 2 split, ``id`` and ``title`` are required
+        # (inherited from ``_RequiredTaskFields``); everything else is
+        # optional. Pins the required-field set so a future refactor
+        # that moves ``id`` or ``title`` into the optional bucket — and
+        # would silently re-enable the "Could not access item" class of
+        # pyright errors in ``orchestrator.py`` — fails here first.
+        hints = get_type_hints(TaskDict)
+        # Minimum valid instance.
+        t: TaskDict = {"id": "t1", "title": "sample"}
+        assert t["id"] == "t1"
+        # Required-ness is exposed via the class-level sets, not the
+        # annotations dict.
+        assert TaskDict.__required_keys__ == {"id", "title"}
+        # All the optional-at-rest fields are still in the annotations.
+        assert "depends_on" in hints
+        assert "agentspec" in hints
 
     def test_hints_are_strings_or_lists_of_str(self):
         # Sanity: the annotations themselves don't drift. Runtime

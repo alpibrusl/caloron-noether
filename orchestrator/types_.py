@@ -55,25 +55,35 @@ class AgentspecBridge(TypedDict, total=False):
     error: str
 
 
-class TaskDict(TypedDict, total=False):
-    """The "task" payload that flows from the PO / HR agents through the
-    main sprint loop.
+class _RequiredTaskFields(TypedDict):
+    """Always-present fields on a task payload.
 
-    Declared ``total=False`` because different code paths populate
-    different subsets: HR sets ``skills`` and maybe ``agentspec``; PO
-    sets ``id``, ``title``, and ``depends_on``; the bridge adds
-    ``tools_used``.  Every consumer reads defensively.
-
-    Required in practice (but not enforced by TypedDict semantics):
-
-    - ``id`` — stable task identifier; matches ``is_valid_id``.
-    - ``title`` — human-readable summary.
-
-    See ``orchestrator/validation.py`` for the ``id`` invariants.
+    Split from ``TaskDict`` so pyright can statically prove ``t["id"]``
+    and ``t["title"]`` never KeyError. Every stage that emits a task —
+    PO decompose, HR assignment, agentspec bridge — sets both of these;
+    they're load-bearing across logging, branch naming, and gitea issue
+    titles. If a future stage can't promise them, construct a separate
+    partial type rather than loosening this one.
     """
 
     id: str
     title: str
+
+
+class TaskDict(_RequiredTaskFields, total=False):
+    """The "task" payload that flows from the PO / HR agents through the
+    main sprint loop.
+
+    Inherits required ``id`` + ``title`` from ``_RequiredTaskFields``;
+    all other fields are declared ``total=False`` because different
+    code paths populate different subsets — HR sets ``skills`` and
+    maybe ``agentspec``; PO sets ``depends_on``; the bridge adds
+    ``tools_used``. Every consumer reads those defensively with
+    ``.get()`` or a membership check.
+
+    See ``orchestrator/validation.py`` for the ``id`` invariants.
+    """
+
     depends_on: list[str]
     skills: list[str]
     tools_used: list[str]

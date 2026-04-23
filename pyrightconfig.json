@@ -1,6 +1,8 @@
 {
   "include": [
+    "orchestrator/orchestrator.py",
     "orchestrator/types_.py",
+    "orchestrator/validation.py",
     "tests/test_orchestrator_types.py"
   ],
 
