@@ -1,0 +1,40 @@
+{
+  "include": [
+    "orchestrator/types_.py",
+    "tests/test_orchestrator_types.py"
+  ],
+
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/.venv-docs",
+    "**/target",
+    "**/site",
+    "**/node_modules",
+    "stages",
+    "caloron",
+    "shell",
+    "demos",
+    "docs"
+  ],
+
+  "extraPaths": [
+    "orchestrator"
+  ],
+
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Linux",
+
+  "typeCheckingMode": "basic",
+
+  "strict": [],
+
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none",
+  "reportUnusedImport": "warning",
+  "reportUnusedVariable": "warning",
+  "reportGeneralTypeIssues": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalSubscript": "error",
+  "reportPrivateImportUsage": "none"
+}
