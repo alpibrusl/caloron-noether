@@ -77,6 +77,88 @@ def test_orchestrator_import_rejects_empty_gitea_token(monkeypatch):
         import orchestrator.orchestrator  # noqa: F401
 
 
+# ── REPO gate ──────────────────────────────────────────────────────────────
+
+
+def test_orchestrator_import_accepts_valid_repo(monkeypatch):
+    """Valid ``REPO`` values imported cleanly. Covers the default plus
+    a few legitimate forms a user might set."""
+    monkeypatch.setenv("GITEA_TOKEN", "fake-token")
+
+    for good_repo in ["caloron/full-loop", "acme/my-tool", "user/repo", "org/v0.1.0"]:
+        monkeypatch.setenv("REPO", good_repo)
+        for key in list(sys.modules.keys()):
+            if key.startswith("orchestrator"):
+                del sys.modules[key]
+        import orchestrator.orchestrator as orch_mod
+
+        importlib.reload(orch_mod)
+        assert orch_mod.REPO == good_repo, good_repo
+
+
+def test_orchestrator_import_rejects_shell_metacharacter_in_repo(monkeypatch):
+    """``REPO`` flows into a shell script via ``docker exec ... sh -c``.
+    Metacharacters would be direct injection. Closes the REPO
+    half of issue #19."""
+    monkeypatch.setenv("GITEA_TOKEN", "fake-token")
+
+    for bad_repo in [
+        "evil;rm -rf /",
+        "acme/tool$(whoami)",
+        "owner/repo`cmd`",
+        "foo\nbar",
+        "owner with space/repo",
+    ]:
+        monkeypatch.setenv("REPO", bad_repo)
+        for key in list(sys.modules.keys()):
+            if key.startswith("orchestrator"):
+                del sys.modules[key]
+        with pytest.raises(RuntimeError, match="REPO environment variable is invalid"):
+            import orchestrator.orchestrator  # noqa: F401
+
+
+def test_orchestrator_import_rejects_path_traversal_in_repo(monkeypatch):
+    """``REPO`` interpolates into ``/data/git/repositories/{REPO}.git``.
+    A traversal value like ``../../../etc/passwd`` would let the sh -c
+    script touch unintended paths. Must be rejected."""
+    monkeypatch.setenv("GITEA_TOKEN", "fake-token")
+
+    for bad_repo in ["../etc/passwd", "owner/..", "../../../secret", "foo/../bar"]:
+        monkeypatch.setenv("REPO", bad_repo)
+        for key in list(sys.modules.keys()):
+            if key.startswith("orchestrator"):
+                del sys.modules[key]
+        with pytest.raises(RuntimeError, match="REPO environment variable is invalid"):
+            import orchestrator.orchestrator  # noqa: F401
+
+
+def test_orchestrator_import_rejects_leading_slash_or_dash_in_repo(monkeypatch):
+    """Leading ``/`` would look absolute in the API URL; leading ``-``
+    could be mis-read as an argv flag by a future subprocess caller."""
+    monkeypatch.setenv("GITEA_TOKEN", "fake-token")
+
+    for bad_repo in ["/owner/repo", "-rf/-rf", "--force/x"]:
+        monkeypatch.setenv("REPO", bad_repo)
+        for key in list(sys.modules.keys()):
+            if key.startswith("orchestrator"):
+                del sys.modules[key]
+        with pytest.raises(RuntimeError, match="REPO environment variable is invalid"):
+            import orchestrator.orchestrator  # noqa: F401
+
+
+def test_orchestrator_import_rejects_uppercase_in_repo(monkeypatch):
+    """The permissive branch pattern is lowercase-only. Users with
+    case-sensitive Gitea repos must lowercase them or open an issue
+    to widen the validator."""
+    monkeypatch.setenv("GITEA_TOKEN", "fake-token")
+    monkeypatch.setenv("REPO", "Acme/MyTool")
+    for key in list(sys.modules.keys()):
+        if key.startswith("orchestrator"):
+            del sys.modules[key]
+    with pytest.raises(RuntimeError, match="REPO environment variable is invalid"):
+        import orchestrator.orchestrator  # noqa: F401
+
+
 # ── Subprocess-boundary validation ────────────────────────────────────────────
 
 

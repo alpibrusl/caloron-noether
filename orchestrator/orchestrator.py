@@ -38,7 +38,7 @@ from template_store import scaffold_project
 # works under the test shim but not under `python orchestrator/
 # orchestrator.py` invocation, so bare-name is strictly more portable.
 from types_ import BlockedTaskDict, TaskDict  # noqa: I001
-from validation import require_branch, require_id  # noqa: I001
+from validation import is_valid_branch, require_branch, require_id  # noqa: I001
 
 # Profile integration (requires agentspec with profile module)
 try:
@@ -71,7 +71,38 @@ def _require_gitea_token() -> str:
 
 
 GITEA_TOKEN = _require_gitea_token()
-REPO = os.environ.get("REPO", "caloron/full-loop")
+
+
+def _require_repo() -> str:
+    """Read and validate the ``REPO`` env var.
+
+    ``REPO`` is interpolated directly into:
+
+    - a ``docker exec ... sh -c`` script (``/data/git/repositories/{REPO}.git``)
+      — a shell-metacharacter would be direct injection.
+    - every Gitea API URL (``/api/v1/repos/{REPO}/...``) — unicode or
+      control chars would either break requests or hit unintended
+      endpoints.
+
+    Ops-supplied rather than PO-generated, so blast radius is lower
+    than task/branch ids. Still validated for defense in depth. Uses
+    the permissive branch pattern since Gitea repos follow
+    ``owner/name`` with the same character classes caloron branches
+    use.
+
+    See issue #19's remaining items.
+    """
+    value = os.environ.get("REPO", "caloron/full-loop")
+    if not is_valid_branch(value):
+        raise RuntimeError(
+            f"REPO environment variable is invalid: {value!r}. "
+            f"Must match ^[a-z0-9._/-]{{1,128}}$ (no '..', "
+            f"no leading '/' or '-'). Typical value: 'owner/repo-name'."
+        )
+    return value
+
+
+REPO = _require_repo()
 SANDBOX = os.environ.get("SANDBOX", str(Path(__file__).parent.parent.parent / "scripts" / "sandbox-agent.sh"))
 WORK = os.environ.get("WORK", "/tmp/caloron-full-loop")
 AGENT_TIMEOUT_S = int(os.environ.get("AGENT_TIMEOUT", "180"))  # 3 minutes
