@@ -1,14 +1,18 @@
 """Runtime-shape tests for the orchestrator type aliases.
 
 ``TypedDict`` is a static-only concept — at runtime, instances are
-plain ``dict``. These tests don't re-prove pyright's work; instead
-they lock in the *structural* agreements that pyright enforces
-statically, so a future code reorganisation that breaks the expected
-keys fails at test collection time rather than at production runtime.
+plain ``dict``. These tests do two things:
 
-Pyright-visible typing is verified separately in CI via the
-``Python Types (pyright allowlist)`` job. See issue #17 for the
-broader rollout plan.
+1. **Runtime:** lock in the structural agreements at test-collection
+   time (``get_type_hints`` assertions, shape-round-trip smokes).
+2. **Static:** the ``TYPE_CHECKING`` block at the bottom serves as
+   pyright's regression guard for the typed orchestrator functions —
+   this file is in ``pyrightconfig.json::include`` alongside
+   ``orchestrator/types_.py``, so any change that breaks the declared
+   signatures of ``_enforce_required_skills`` / ``_resolved_skills_for``
+   surfaces here during the ``Python Types (pyright allowlist)`` CI
+   job even though ``orchestrator/orchestrator.py`` itself isn't yet
+   in the allowlist. See issue #17 for the broader rollout.
 """
 
 from __future__ import annotations
@@ -17,12 +21,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, get_type_hints
 
-# Shim — like tests/test_orchestrator_learnings.py but with the paths
-# inserted in the opposite order: we want `orchestrator` to resolve as
-# a *package* (so `orchestrator.types_` works) rather than as the bare
-# `orchestrator.py` module that the existing orchestrator-side imports
-# rely on.  ``insert(0)`` means later calls end up first in sys.path,
-# so we insert _ORCH_DIR first and _REPO_ROOT second.
+# sys.path shim: orchestrator-side modules use bare-name imports
+# (``from agent_configurator import …``) — they need the orchestrator
+# dir on sys.path to resolve. We add both the repo root (so package
+# paths like ``orchestrator.orchestrator`` work for the TYPE_CHECKING
+# block below) and the orchestrator dir (for our own bare-name
+# ``from types_ import …``).
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _ORCH_DIR = _REPO_ROOT / "orchestrator"
 for _p in (str(_ORCH_DIR), str(_REPO_ROOT)):
@@ -124,11 +128,18 @@ class TestAgentspecBridge:
 
 
 if TYPE_CHECKING:
-    # Compile-time assertion that TaskDict flows through the orchestrator's
-    # typed functions. Pyright verifies at lint-time; this block is never
-    # executed but prevents a refactor from accidentally changing the
-    # public types without updating downstream.
-    from orchestrator import (
+    # Compile-time assertion that TaskDict / BlockedTaskDict flow
+    # through the orchestrator's typed functions correctly. The block
+    # is never executed at runtime (``TYPE_CHECKING`` is False there),
+    # but pyright evaluates it during the CI ``python-types`` job —
+    # this file is in ``pyrightconfig.json::include`` — so any refactor
+    # that drifts the typed signatures of ``_enforce_required_skills``
+    # or ``_resolved_skills_for`` surfaces as a CI failure here.
+    #
+    # This is the load-bearing mechanism for keeping the annotations
+    # honest until ``orchestrator.orchestrator`` itself joins the
+    # pyright allowlist (tracked as Pass 2 on #17).
+    from orchestrator.orchestrator import (
         _enforce_required_skills,
         _resolved_skills_for,
     )

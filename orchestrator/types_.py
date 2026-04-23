@@ -39,7 +39,16 @@ from typing import TypedDict
 
 class AgentspecBridge(TypedDict, total=False):
     """Optional shape attached to a task when ``agentspec_bridge`` has
-    resolved it. The presence of ``error`` signals a resolution failure.
+    resolved it.
+
+    **Semantic invariant** (not expressed statically): in practice each
+    instance has either ``tools`` (resolution succeeded) **or** ``error``
+    (resolution failed), not both and not neither. ``total=False``
+    permits all four combinations statically — expressing the real
+    invariant would require a ``Union[Success, Error]`` shape that
+    fragments call-site code without catching a bug that ever occurs in
+    practice. Callers should branch on ``"error" in bridge`` and treat
+    ``tools`` as meaningful only on the success path.
     """
 
     tools: list[str]
