@@ -93,8 +93,13 @@ jobs:
 
       - name: Verify noether-cli on PATH
         run: |
+          # noether uses `noether version` as a subcommand (ACLI
+          # convention), not `--version`. This was a real workflow
+          # bug pre-self-smoke — caught the first time the workflow
+          # actually ran against itself via the pull_request: paths
+          # trigger added in the same PR.
           which noether
-          noether --version
+          noether version
 
       - name: Install caloron Python package + dev extras
         run: |
