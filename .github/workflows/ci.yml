@@ -97,17 +97,6 @@ jobs:
             | python3 stages/_run_stage.py stages/supervisor/compose_message.py \
             | python3 -c "import json,sys; assert 'a1' in json.load(sys.stdin)['message']"
 
-  docs:
-    name: MkDocs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install mkdocs-material
-      - run: mkdocs build
-
   python-lint:
     name: Python Lint
     runs-on: ubuntu-latest
