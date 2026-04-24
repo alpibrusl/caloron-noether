@@ -30,7 +30,7 @@ All business logic is in Noether stages (Python). The shell only manages process
 
 ## Prerequisites
 
-Caloron-Noether is a set of stages and compositions that run on top of [**Noether**](https://github.com/alpibrusl/noether) (v0.3.0+). You need both the `noether` CLI and `noether-scheduler` on your `PATH`.
+Caloron-Noether is a set of stages and compositions that run on top of [**Noether**](https://github.com/alpibrusl/noether) (v0.8.1+). You need both the `noether` CLI and `noether-scheduler` on your `PATH`.
 
 ```bash
 cargo install noether-cli noether-scheduler
@@ -42,8 +42,8 @@ See the [Noether docs](https://alpibrusl.github.io/noether/) for deeper configur
 ## Setup
 
 ```bash
-# 1. Verify noether is installed
-noether --version
+# 1. Verify noether is installed (note: `noether version` is an ACLI subcommand, not `--version`)
+noether version
 noether-scheduler --version
 
 # 2. (Optional) Point at the hosted stage registry
