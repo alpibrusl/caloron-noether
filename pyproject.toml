@@ -109,6 +109,5 @@ exclude = [
     "site",
     "demo",
     "context",
-    "docs/casts",
     "dist",
 ]
